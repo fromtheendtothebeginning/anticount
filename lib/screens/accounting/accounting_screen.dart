@@ -5,6 +5,8 @@ import '../../models/transaction.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/transaction_provider.dart';
+import '../../widgets/animated_dialog.dart';
+import '../settings/category_management_screen.dart';
 
 /// 显示记账弹窗（新增 / 编辑）
 Future<void> showAccountingSheet(
@@ -87,8 +89,9 @@ class _AccountingSheetState extends State<AccountingSheet> {
     final messenger = ScaffoldMessenger.of(context);
     final typeStr = _type == TransactionType.income ? 'income' : 'expense';
 
-    final ok = await showDialog<bool>(
+    final ok = await showAnimatedDialog<bool>(
       context: context,
+      barrierLabel: '添加分类',
       builder: (_) => AlertDialog(
         title: const Text('添加分类'),
         content: TextField(
@@ -129,8 +132,10 @@ class _AccountingSheetState extends State<AccountingSheet> {
       setState(() => _category = ctrl.text.trim());
       messenger.showSnackBar(SnackBar(content: Text('已添加分类：${ctrl.text.trim()}')));
     } else {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('添加失败（可能已存在或数量超限）')),
+      await showInfoDialog(
+        context: context,
+        title: '添加失败',
+        content: '添加失败（可能已存在或数量超限）',
       );
     }
     ctrl.dispose();
@@ -143,15 +148,27 @@ class _AccountingSheetState extends State<AccountingSheet> {
 
     final amount = double.tryParse(_amountCtrl.text.trim());
     if (amount == null || amount <= 0) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('金额无效')));
+      await showInfoDialog(
+        context: context,
+        title: '输入有误',
+        content: '金额无效，请输入大于 0 的数字',
+      );
       return;
     }
-    if (_category == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请选择分类')));
+    // 未选择分类时默认使用"其他"
+    final settings = context.read<SettingsProvider>();
+    final cats = _type == TransactionType.income
+        ? settings.visibleIncomeCategories
+        : settings.visibleExpenseCategories;
+    if (cats.isEmpty) {
+      await showInfoDialog(
+        context: context,
+        title: '无法记账',
+        content: '没有可用分类，请先在设置中添加',
+      );
       return;
     }
+    _category ??= cats.contains('其他') ? '其他' : cats.first;
 
     setState(() => _saving = true);
     final provider = context.read<TransactionProvider>();
@@ -178,11 +195,15 @@ class _AccountingSheetState extends State<AccountingSheet> {
     }
     if (!mounted) return;
     setState(() => _saving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(ok ? '保存成功' : (provider.error ?? '保存失败'))),
-    );
-    if (ok) {
-      Navigator.pop(context); // 保存成功后关闭弹窗
+    // 仅在失败时提示，成功时静默关闭
+    if (!ok) {
+      await showInfoDialog(
+        context: context,
+        title: '保存失败',
+        content: provider.error ?? '保存失败，请重试',
+      );
+    } else {
+      Navigator.pop(context);
     }
   }
 
@@ -190,9 +211,9 @@ class _AccountingSheetState extends State<AccountingSheet> {
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>();
     final categories = _type == TransactionType.income
-        ? settings.incomeCategories
-        : settings.expenseCategories;
-    // 确保 _category 在当前类型分类列表中
+        ? settings.visibleIncomeCategories
+        : settings.visibleExpenseCategories;
+    // 确保 _category 在当前类型可见分类列表中
     if (_category != null && !categories.contains(_category)) {
       _category = null;
     }
@@ -272,10 +293,20 @@ class _AccountingSheetState extends State<AccountingSheet> {
                 },
               ),
               const SizedBox(height: 16),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text('分类',
-                    style: Theme.of(context).textTheme.titleSmall),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('分类', style: Theme.of(context).textTheme.titleSmall),
+                  TextButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const CategoryManagementScreen(),
+                      ),
+                    ),
+                    icon: const Icon(Icons.settings, size: 16),
+                    label: const Text('管理'),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -292,7 +323,7 @@ class _AccountingSheetState extends State<AccountingSheet> {
                   }),
                   // 添加自定义分类按钮
                   ActionChip(
-                    label: const Text('+ 添加'),
+                    label: const Text('添加'),
                     avatar: const Icon(Icons.add, size: 18),
                     onPressed: _addCategory,
                   ),

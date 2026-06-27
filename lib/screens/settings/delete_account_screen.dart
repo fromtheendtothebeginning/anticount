@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
+import '../../widgets/animated_dialog.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/app_text_field.dart';
 
@@ -27,8 +28,10 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (!_agreed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先勾选确认')),
+      await showInfoDialog(
+        context: context,
+        title: '需要确认',
+        content: '请先勾选"我确认删除账号"复选框',
       );
       return;
     }
@@ -42,10 +45,10 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
       );
       // 登出后根路由会自动切回登录页
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(context.read<AuthProvider>().error ?? '删除失败'),
-        ),
+      await showInfoDialog(
+        context: context,
+        title: '删除失败',
+        content: context.read<AuthProvider>().error ?? '删除失败，请重试',
       );
     }
   }

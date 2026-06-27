@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../ai/ai_accounting_screen.dart';
 import '../bills/bills_screen.dart';
 import '../profile/user_profile_screen.dart';
 
-/// 主页（底部导航：账单 + 我的）
+/// 主页（底部导航：账单 + AI记账 + 我的）
 ///
 /// 导航栏采用圆角矩形悬浮样式，页面切换通过 PageView 实现滑动动画。
 class HomeScreen extends StatefulWidget {
@@ -19,6 +20,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   static const _pages = <Widget>[
     BillsScreen(),
+    AiAccountingScreen(),
     UserProfileScreen(),
   ];
 
@@ -70,6 +72,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 icon: Icon(Icons.receipt_long_outlined),
                 selectedIcon: Icon(Icons.receipt_long),
                 label: '账单',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.auto_awesome_outlined),
+                selectedIcon: Icon(Icons.auto_awesome),
+                label: 'AI记账',
               ),
               NavigationDestination(
                 icon: Icon(Icons.person_outline),

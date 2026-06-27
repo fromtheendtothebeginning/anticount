@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
+import '../../widgets/animated_dialog.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/app_text_field.dart';
 
@@ -40,10 +41,10 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       );
       Navigator.of(context).pop();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(context.read<AuthProvider>().error ?? '重置失败'),
-        ),
+      await showInfoDialog(
+        context: context,
+        title: '重置失败',
+        content: context.read<AuthProvider>().error ?? '重置失败，请重试',
       );
     }
   }

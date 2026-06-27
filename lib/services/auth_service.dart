@@ -196,6 +196,11 @@ class AuthService {
     await prefs.remove(_kSessionKey);
   }
 
+  /// 清除指定用户的全部记账数据（退出登录时不保留数据时调用）
+  Future<void> clearUserData(int userId) async {
+    await _db.delete('transactions', where: 'user_id = ?', whereArgs: [userId]);
+  }
+
   /// 读取当前登录用户，未登录返回 null
   Future<AppUser?> currentUser() async {
     final prefs = await SharedPreferences.getInstance();

@@ -3,11 +3,13 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'config/env.dart';
+import 'providers/ai_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/transaction_provider.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/home/home_screen.dart';
+import 'services/ai_service.dart';
 import 'services/auth_service.dart';
 import 'services/database_service.dart';
 import 'services/settings_service.dart';
@@ -22,11 +24,13 @@ Future<void> main() async {
   final authService = AuthService(db);
   final transactionService = TransactionService(db);
   final settingsService = SettingsService(prefs);
+  final aiService = AiService();
 
   runApp(AnticountApp(
     authService: authService,
     transactionService: transactionService,
     settingsService: settingsService,
+    aiService: aiService,
   ));
 }
 
@@ -36,11 +40,13 @@ class AnticountApp extends StatelessWidget {
     required this.authService,
     required this.transactionService,
     required this.settingsService,
+    required this.aiService,
   });
 
   final AuthService authService;
   final TransactionService transactionService;
   final SettingsService settingsService;
+  final AiService aiService;
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +60,9 @@ class AnticountApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(
           create: (_) => SettingsProvider(settingsService),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AiProvider(aiService)..bootstrap(),
         ),
       ],
       child: Consumer<SettingsProvider>(

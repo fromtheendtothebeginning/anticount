@@ -169,7 +169,12 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> logout() async {
+  /// 退出登录
+  /// [retainData] 为 true 时保留用户记账数据（默认），false 时清除全部交易记录
+  Future<void> logout({bool retainData = true}) async {
+    if (!retainData && _user != null) {
+      await _authService.clearUserData(_user!.id);
+    }
     await _authService.clearSession();
     _user = null;
     notifyListeners();

@@ -8,6 +8,7 @@ import '../../models/transaction.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/transaction_provider.dart';
+import '../../widgets/animated_dialog.dart';
 import '../accounting/accounting_screen.dart';
 
 /// 账单页面（含记账入口）
@@ -207,25 +208,11 @@ class _BillsScreenState extends State<BillsScreen> {
   }
 
   Future<void> _confirmDelete(BuildContext context, Transaction tx) async {
-    final ok = await showDialog<bool>(
+    // 使用统一的带动画对话框 helper
+    final ok = await showAnimatedDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('删除记账'),
-        content: const Text('确认删除该条记录？此操作不可恢复。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      barrierLabel: '删除确认',
+      builder: (_) => _DeleteConfirmDialog(theme: Theme.of(context)),
     );
     if (ok == true && context.mounted) {
       final user = context.read<AuthProvider>().user;
@@ -336,8 +323,15 @@ class _TransactionTile extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
+          // 编辑按钮（与删除按钮并列，点击进入编辑）
+          IconButton(
+            icon: const Icon(Icons.edit_outlined, size: 20),
+            tooltip: '编辑',
+            onPressed: onEdit,
+          ),
           IconButton(
             icon: const Icon(Icons.delete_outline, size: 20),
+            tooltip: '删除',
             onPressed: onDelete,
           ),
         ],
@@ -359,6 +353,88 @@ class _EmptyState extends StatelessWidget {
         SizedBox(height: 8),
         Center(child: Text('暂无账单记录，点击下方按钮记一笔吧～')),
       ],
+    );
+  }
+}
+
+/// 删除确认对话框
+///
+/// 配合 showGeneralDialog 使用，呈现从下方滑入的动画效果。
+class _DeleteConfirmDialog extends StatelessWidget {
+  const _DeleteConfirmDialog({required this.theme});
+
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.symmetric(horizontal: 28),
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 顶部图标
+            Icon(Icons.delete_outline,
+                size: 40, color: theme.colorScheme.error),
+            const SizedBox(height: 12),
+            Text(
+              '删除记账',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '确认删除该条记录？此操作不可恢复。',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: theme.colorScheme.onSurface.withAlpha(160),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text('取消'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: theme.colorScheme.error,
+                      minimumSize: const Size.fromHeight(44),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text('删除'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

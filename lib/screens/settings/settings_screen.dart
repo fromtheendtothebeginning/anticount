@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../widgets/animated_dialog.dart';
+import 'category_management_screen.dart';
 import 'change_password_screen.dart';
 import 'delete_account_screen.dart';
 
@@ -82,11 +84,29 @@ class SettingsScreen extends StatelessWidget {
                   },
                 ),
               ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              ListTile(
+                leading: const Icon(Icons.category_outlined),
+                title: const Text('分类管理'),
+                subtitle: const Text('排序、隐藏、添加分类'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const CategoryManagementScreen(),
+                )),
+              ),
             ],
           ),
           _SectionTitle('账户安全'),
           _SettingsCard(
             children: [
+              SwitchListTile(
+                secondary: const Icon(Icons.save_outlined),
+                title: const Text('退出登录时保留数据'),
+                subtitle: const Text('关闭后，退出登录将清除本地记账数据'),
+                value: settings.retainDataOnLogout,
+                onChanged: (v) => settings.setRetainDataOnLogout(v),
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
               ListTile(
                 leading: const Icon(Icons.lock_outline),
                 title: const Text('修改密码'),
@@ -131,9 +151,55 @@ class SettingsScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
+          // 退出登录按钮
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: FilledButton.tonalIcon(
+              onPressed: () => _confirmLogout(context),
+              icon: const Icon(Icons.logout),
+              label: const Text('退出登录'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
         ],
       ),
     );
+  }
+
+  /// 退出登录确认
+  Future<void> _confirmLogout(BuildContext context) async {
+    final authProvider = context.read<AuthProvider>();
+    final settings = context.read<SettingsProvider>();
+    final retain = settings.retainDataOnLogout;
+    final ok = await showAnimatedDialog<bool>(
+      context: context,
+      barrierLabel: '退出登录',
+      builder: (_) => AlertDialog(
+        title: const Text('退出登录'),
+        content: Text(retain
+            ? '确认退出当前账号？\n你的记账数据将保留，下次登录可继续查看。'
+            : '确认退出当前账号？\n根据你的设置，退出后本地记账数据将被清除。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('退出'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await authProvider.logout(retainData: retain);
+    }
   }
 }
 

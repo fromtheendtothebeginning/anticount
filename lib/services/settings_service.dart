@@ -11,6 +11,9 @@ class SettingsService {
   static const _kCurrency = 'settings_currency';
   static const _kIncomeCategories = 'settings_income_categories';
   static const _kExpenseCategories = 'settings_expense_categories';
+  static const _kHiddenIncomeCategories = 'settings_hidden_income_categories';
+  static const _kHiddenExpenseCategories = 'settings_hidden_expense_categories';
+  static const _kRetainDataOnLogout = 'settings_retain_data_on_logout';
 
   /// 主题模式：system / light / dark
   String get themeMode => _prefs.getString(_kThemeMode) ?? 'system';
@@ -36,4 +39,22 @@ class SettingsService {
 
   Future<void> setExpenseCategories(List<String> value) =>
       _prefs.setStringList(_kExpenseCategories, value);
+
+  /// 隐藏的收入分类
+  List<String> get hiddenIncomeCategories =>
+      _prefs.getStringList(_kHiddenIncomeCategories) ?? const [];
+  Future<void> setHiddenIncomeCategories(List<String> value) =>
+      _prefs.setStringList(_kHiddenIncomeCategories, value);
+
+  /// 隐藏的支出分类
+  List<String> get hiddenExpenseCategories =>
+      _prefs.getStringList(_kHiddenExpenseCategories) ?? const [];
+  Future<void> setHiddenExpenseCategories(List<String> value) =>
+      _prefs.setStringList(_kHiddenExpenseCategories, value);
+
+  /// 退出登录时是否保留本地数据（默认保留）
+  bool get retainDataOnLogout =>
+      _prefs.getBool(_kRetainDataOnLogout) ?? true;
+  Future<void> setRetainDataOnLogout(bool value) =>
+      _prefs.setBool(_kRetainDataOnLogout, value);
 }

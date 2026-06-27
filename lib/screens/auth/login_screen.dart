@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
+import '../../widgets/animated_dialog.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/app_text_field.dart';
 import 'register_screen.dart';
@@ -38,8 +39,10 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = false);
     if (!ok) {
       final err = context.read<AuthProvider>().error ?? '登录失败';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(err)),
+      await showInfoDialog(
+        context: context,
+        title: '登录失败',
+        content: err,
       );
     }
   }

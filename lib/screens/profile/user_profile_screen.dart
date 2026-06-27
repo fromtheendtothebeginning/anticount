@@ -8,6 +8,8 @@ import 'package:provider/provider.dart';
 
 import '../../models/user.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/settings_provider.dart';
+import '../../widgets/animated_dialog.dart';
 import '../settings/settings_screen.dart';
 
 /// 用户界面（"我的" Tab）
@@ -91,11 +93,16 @@ class UserProfileScreen extends StatelessWidget {
   Future<void> _handleMenu(BuildContext context, String value) async {
     if (value == 'logout') {
       final authProvider = context.read<AuthProvider>();
-      final ok = await showDialog<bool>(
+      final settings = context.read<SettingsProvider>();
+      final retain = settings.retainDataOnLogout;
+      final ok = await showAnimatedDialog<bool>(
         context: context,
+        barrierLabel: '退出登录',
         builder: (_) => AlertDialog(
           title: const Text('退出登录'),
-          content: const Text('确认退出当前账号？'),
+          content: Text(retain
+              ? '确认退出当前账号？\n你的记账数据将保留，下次登录可继续查看。'
+              : '确认退出当前账号？\n根据你的设置，退出后本地记账数据将被清除。'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -109,14 +116,13 @@ class UserProfileScreen extends StatelessWidget {
         ),
       );
       if (ok == true) {
-        await authProvider.logout();
+        await authProvider.logout(retainData: retain);
       }
     } else if (value == 'version') {
-      showAboutDialog(
+      await showInfoDialog(
         context: context,
-        applicationName: 'Anticount',
-        applicationVersion: '1.0.0',
-        applicationLegalese: '© 2026 Anticraft',
+        title: '关于 Anticount',
+        content: '版本：1.0.0\n© 2026 Anticraft',
       );
     }
   }
@@ -325,9 +331,15 @@ class _AvatarPickerState extends State<_AvatarPicker> {
 
     if (!mounted) return;
     setState(() => _saving = false);
-    messenger.showSnackBar(
-      SnackBar(content: Text(ok ? '头像已更新' : '头像更新失败')),
-    );
+    if (ok) {
+      messenger.showSnackBar(const SnackBar(content: Text('头像已更新')));
+    } else {
+      await showInfoDialog(
+        context: context,
+        title: '更新失败',
+        content: '头像更新失败，请重试',
+      );
+    }
   }
 
   Future<void> _deleteAvatar() async {
@@ -354,9 +366,15 @@ class _AvatarPickerState extends State<_AvatarPicker> {
 
     if (!mounted) return;
     setState(() => _saving = false);
-    messenger.showSnackBar(
-      SnackBar(content: Text(ok ? '头像已删除' : '删除失败')),
-    );
+    if (ok) {
+      messenger.showSnackBar(const SnackBar(content: Text('头像已删除')));
+    } else {
+      await showInfoDialog(
+        context: context,
+        title: '删除失败',
+        content: '头像删除失败，请重试',
+      );
+    }
   }
 
   @override
@@ -432,8 +450,9 @@ class _NicknameEditorState extends State<_NicknameEditor> {
     final authProvider = context.read<AuthProvider>();
     final messenger = ScaffoldMessenger.of(context);
 
-    final ok = await showDialog<bool>(
+    final ok = await showAnimatedDialog<bool>(
       context: context,
+      barrierLabel: '修改昵称',
       builder: (_) => AlertDialog(
         title: const Text('修改昵称'),
         content: TextField(
@@ -469,9 +488,19 @@ class _NicknameEditorState extends State<_NicknameEditor> {
       avatar: user.avatar,
     );
 
-    messenger.showSnackBar(
-      SnackBar(content: Text(ok2 ? '昵称已更新' : '昵称更新失败')),
-    );
+    if (!mounted) {
+      ctrl.dispose();
+      return;
+    }
+    if (ok2) {
+      messenger.showSnackBar(const SnackBar(content: Text('昵称已更新')));
+    } else {
+      await showInfoDialog(
+        context: context,
+        title: '更新失败',
+        content: '昵称更新失败，请重试',
+      );
+    }
     ctrl.dispose();
   }
 
