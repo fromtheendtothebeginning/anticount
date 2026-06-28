@@ -1,0 +1,694 @@
+# Anticount 工作日志 - 2026-06-28
+
+## 完成任务
+
+### Bug 修复
+1. **API 请求失败（400）：temperature 参数错误**
+   - 文件：lib/services/ai_service.dart
+   - 问题：硬编码 temperature: 0.1，但思考模型（如 deepseek-v4-pro）只允许 temperature=1
+   - 修复：移除 recognizeFromText / recognizeFromImage 中的 temperature 参数，让 API 使用默认值
+
+### 功能完善
+2. **AI 配置主界面重构 - 按文字识别/图像识别分组展示**
+   - 文件：lib/services/ai_service.dart
+     - 新增 _kActiveTextModelId / _kActiveMultimodalModelId 存储键
+     - 新增 getActiveTextModelId / setActiveTextModelId 等方法
+     - recognizeFromText / recognizeFromImage 签名改为接受 AiModelConfig（支持同一 Profile 下切换不同模型）
+     - removeProfile 切换 Profile 时清除模型 ID 覆盖
+   - 文件：lib/providers/ai_provider.dart（重写）
+     - 新增 _activeTextModelId / _activeMultimodalModelId 状态
+     - 新增 effectiveTextConfig / effectiveMultimodalConfig getter（合并 Profile + 模型覆盖）
+     - 新增 selectTextModel / selectMultimodalModel 方法（一次性选择 Profile + 模型）
+     - 切换 Profile 时自动重置模型 ID 为 Profile 默认
+     - updateProfile 同步刷新模型 ID（防止旧 modelId 失效）
+   - 文件：lib/screens/ai/ai_config_screen.dart（完全重写）
+     - 上半部分：文字识别 / 图像识别两个 ExpansionTile 分组
+     - 展开后按 Profile 分组，列出该厂商所有可选模型
+     - 文字识别列出所有模型，图像识别仅列出多模态模型
+     - 自定义 _ModelTile 单选样式（避免 RadioListTile 弃用 API）
+     - 下半部分：配置管理（创建/编辑/删除 Profile）
+   - 文件：lib/screens/ai/ai_accounting_screen.dart
+     - 适配双激活配置，显示当前识别模式对应的 Profile 名和模型
+
+3. **黑色提示栏改为浮动样式**
+   - 统一所有 SnackBar 为 SnackBarBehavior.floating 样式
+   - 涉及文件：
+     - lib/screens/settings/category_management_screen.dart
+     - lib/screens/settings/delete_account_screen.dart
+     - lib/screens/settings/change_password_screen.dart
+     - lib/screens/accounting/accounting_screen.dart
+     - lib/screens/auth/register_screen.dart
+     - lib/screens/auth/reset_password_screen.dart
+     - lib/screens/profile/user_profile_screen.dart（3 处）
+
+### 项目试运行
+4. **flutter analyze 通过（0 issues）**
+5. **Android 模拟器运行**
+   - 启动 Medium_Phone_API_36.1 模拟器（Android 16 API 36）
+   - flutter run -d emulator-5554 运行项目
+
+## 版本号
+- 1.0.0 → 1.0.1（z 增加：bug 修复 + 功能完善）
+
+---
+
+## 第二轮
+
+### 功能完善
+6. **新建配置主界面简化**
+   - 文件：lib/screens/ai/ai_profile_edit_screen.dart（完全重写）
+   - 旧布局：文本识别配置（厂商+Key+模型）+ 多模态识别配置（可选，厂商+Key+模型）
+   - 新布局：配置名称 + 厂商选择（单选 deepseek/kimi）+ API Key + 展示该厂商支持的模型列表
+   - 简化逻辑：同一 Profile 使用同一厂商和 API Key
+   - 模型选择移至配置主界面（文字识别/图像识别分组中切换）
+   - 保存时自动设置默认模型：textConfig 用第一个可用模型，multimodalConfig 用第一个多模态模型（若厂商支持）
+   - 编辑模式：沿用原 Profile 的模型 ID（同厂商时避免覆盖用户选择）
+   - 切换厂商时自动重置模型 ID 为新厂商默认
+
+### 项目试运行
+7. **flutter analyze 通过（0 issues）**
+8. **Android 模拟器运行**
+   - flutter run -d emulator-5554 运行项目（模拟器已启动）
+
+## 版本号
+- 1.0.1 → 1.0.2（z 增加：功能完善）
+
+---
+
+## 第三轮
+
+### Bug 修复
+9. **中文化日期选择器和图片选择器**
+   - 文件：pubspec.yaml
+     - 添加 flutter_localizations 依赖
+   - 文件：lib/main.dart
+     - 配置 localizationsDelegates（GlobalMaterialLocalizations/GlobalWidgetsLocalizations/GlobalCupertinoLocalizations）
+     - 设置 supportedLocales 为 zh_CN 和 en_US
+     - 设置 locale 为 zh_CN
+   - 效果：日期选择器、时间选择器等 Material 组件显示为中文
+
+10. **账单日期精确到秒**
+    - 文件：lib/screens/bills/bills_screen.dart
+    - 修改：日期格式从 `MM-dd HH:mm` 改为 `MM-dd HH:mm:ss`
+
+### 功能完善
+11. **新增 5 个 AI 厂商**
+    - 文件：lib/services/ai_service.dart
+    - 新增 AiApiFormat 枚举（openai / anthropic），统一处理两种 API 格式
+    - AiVendor 新增 5 个厂商：
+      - qwen（通义千问）：https://dashscope.aliyuncs.com/compatible-mode/v1
+      - zhipu（智谱 GLM）：https://open.bigmodel.cn/api/paas/v4
+      - openai（ChatGPT）：https://api.openai.com/v1
+      - google（Gemini）：https://generativelanguage.googleapis.com/v1beta/openai
+      - anthropic（Claude）：https://api.anthropic.com/v1
+    - 每个厂商配有 label、baseUrl、apiFormat、availableModels、helpUrl
+    - 新增 helper 方法：_buildHeaders（区分 Bearer 和 x-api-key）、_buildEndpoint（区分 /chat/completions 和 /messages）、_extractContent（区分 choices[0].message.content 和 content[0].text）
+    - verifyApiKey、recognizeFromText、recognizeFromImage 全部支持双格式
+    - Anthropic 格式特殊处理：system 作为顶层字段，图片用 source.base64 结构
+
+12. **厂商选择改为下拉选择**
+    - 文件：lib/screens/ai/ai_profile_edit_screen.dart
+    - 改造：从 RadioListTile 改为 DropdownButtonFormField
+    - 下拉项显示"厂商名（支持多模态/仅文本）"
+
+13. **AI 记账多张照片 + 多账单 + 自动保存**
+    - 文件：lib/services/settings_service.dart + lib/providers/settings_provider.dart
+      - 新增 autoSaveAiBills（bool，默认关闭）设置项
+      - 新增 billGroupMode（String: day/week/month/year，默认 week）设置项
+    - 文件：lib/screens/ai/ai_accounting_screen.dart（重写）
+      - 单图片改为多图片：_selectedImages (List<File>) + _base64Images (List<String>)
+      - 使用 pickMultiImage 支持多选
+      - 网格展示已选图片（3 列），支持删除单张和继续添加
+      - 单结果改为多结果：_results (List<AiRecognitionResult>)
+      - 对每张图片分别调用 recognizeFromImage，收集多个结果
+      - _saveAllResults 统一保存所有结果，统计成功/失败数量
+      - autoSaveAiBills 开启时，识别完成后自动保存，AppBar 显示"自动记账"标识
+      - 关闭自动保存时，显示"全部保存（N 条）"按钮供用户确认
+
+14. **设置页新增账单分组和 AI 自动记账选项**
+    - 文件：lib/screens/settings/settings_screen.dart
+    - 新增"账单"section：账单分组模式下拉选择（日/周/月/年）
+    - 新增"AI 记账"section：识别后自动记入账单开关
+    - 更新硬编码版本号 v1.0.0 → v1.1.0
+
+### 新功能
+15. **账单按日/周/月/年分组展示**
+    - 文件：lib/screens/bills/bills_screen.dart（重写）
+    - 新增分组逻辑：
+      - _groupKey：计算交易所属分组 key（day=yyyy-MM-dd, week=周一日期, month=yyyy-MM, year=yyyy）
+      - _groupTitle：生成分组标题（日=日期, 周=周一~周日, 月=年月, 年=年份）
+      - _groupTransactions：按 key 降序分组（最新在上）
+      - _sumGroup：计算每组收入/支出汇总
+    - 顶部新增分组模式切换 ChoiceChip 行（日/周/月/年）
+    - 新增 _GroupedSection widget：每组一个 Card，显示标题 + 收入/支出/结余 + 该组交易列表
+    - 默认按周分组（由 SettingsProvider.billGroupMode 控制）
+    - 保留原有筛选、删除、编辑、下拉刷新功能
+
+### 项目试运行
+16. **flutter analyze 通过**（1 个 info 级别 deprecation 警告，不影响运行）
+17. **Android 模拟器运行**
+    - flutter run -d emulator-5554 运行项目（Android 16 API 36）
+    - 应用启动成功，可用于测试新的 AI 配置、多照片记账、账单分组功能
+
+## 版本号
+- 1.0.2 → 1.1.0（y 增加：新增账单分组功能）
+
+---
+
+## 第四轮
+
+### Bug 修复
+18. **修复 _dependents.isEmpty 断言错误**
+    - 文件：lib/screens/ai/ai_accounting_screen.dart
+    - 问题：在 build 方法中使用 `context.read<SettingsProvider>()` 不会建立依赖关系，
+      可能导致 widget 树依赖关系异常
+    - 修复：改为 `context.watch<SettingsProvider>()` 建立正确的依赖关系
+
+### 功能完善
+19. **删除账单页年月日分组切换功能**
+    - 文件：lib/screens/bills/bills_screen.dart
+    - 删除顶部的分组模式 ChoiceChip 行（日/周/月/年）
+
+20. **重写账单页：月份切换 + 月收支 + 周切换 + 周收支 + 每日列表**
+    - 文件：lib/providers/transaction_provider.dart
+      - 新增 queryByRange 方法：按时间范围查询交易列表（不影响当前 filter）
+      - 新增 summaryByRange 方法：按时间范围统计收支
+    - 文件：lib/screens/bills/bills_screen.dart（完全重写）
+      - 新布局：
+        1. 月份/年份切换器（左右按钮 + 点击月份文本弹出年月选择器）
+           - 左右按钮切换带 AnimatedSwitcher + SlideTransition 滑动动画
+           - 不可切换时按钮变灰（disabledColor）
+        2. 月收入 / 月支出卡片（可点击跳转到详情页）
+        3. 周切换器（左右按钮 + 周日期范围，带滑动动画）
+        4. 本周收入 / 本周支出卡片
+        5. 每日收支列表（按日期分组，可展开/折叠查看详细交易）
+      - 新增 _NavButton：导航按钮，不可切换时变灰
+      - 新增 _SummaryBox：收支汇总方块，支持点击跳转
+      - 新增 _DailyCard：每日账单卡片，点击展开/折叠（AnimatedCrossFade + AnimatedRotation）
+      - 新增 _MonthPickerDialog：年月选择对话框（DropdownButton 选择年月）
+      - _loadData 方法：查询本月所有交易 + 本周收支，按日分组
+    - 文件：lib/screens/bills/bills_detail_screen.dart（新增）
+      - 账单详情页面，用于月收入/支出点击跳转
+      - 接收 title、start、end、type 参数
+      - 显示该范围该类型的交易列表 + 顶部收支汇总卡片
+
+21. **厂商选择组件改为圆角矩形 + 弹出动画**
+    - 文件：lib/screens/ai/ai_profile_edit_screen.dart
+    - 旧实现：DropdownButtonFormField（下拉菜单，动画不明显）
+    - 新实现：自定义 _VendorPicker 组件
+      - 外观：圆角矩形容器（borderRadius: 12），选中时边框变为主题色
+      - 弹出：PopupMenuButton（自带从点击位置缩放弹出动画）
+      - 菜单：圆角矩形（borderRadius: 16），每项显示厂商图标 + 名称 + 选中对勾
+      - 触发器：显示当前选中的厂商信息 + 下拉箭头
+
+### 项目试运行
+22. **flutter analyze 通过（0 issues）**
+23. **Android 模拟器运行**
+    - flutter run -d emulator-5554 运行项目（Android 16 API 36）
+    - 应用启动成功，可用于测试新的账单页面布局和厂商选择组件
+
+## 版本号
+- 1.1.0 → 1.1.1（z 增加：bug 修复 + 功能完善）
+
+---
+
+## 第五轮
+
+### Bug 修复
+24. **修复添加分类取消后 _dependents.isEmpty 断言错误**
+    - 根因：所有使用 `showAnimatedDialog` 的对话框在 builder 中使用外部 `context`
+      调用 `Navigator.pop(context, ...)`，而非对话框内部的 context。
+      当对话框关闭时，外部 context 的依赖关系可能已失效，触发断言错误。
+    - 修复：所有对话框 builder 改为 `(dialogContext) => AlertDialog(...)`，
+      按钮中使用 `Navigator.pop(dialogContext, ...)`。
+    - 涉及文件：
+      - lib/widgets/animated_dialog.dart（showInfoDialog）
+      - lib/screens/settings/category_management_screen.dart（_addCategory、_confirmDelete）
+      - lib/screens/settings/settings_screen.dart（_confirmLogout）
+      - lib/screens/accounting/accounting_screen.dart（添加分类对话框）
+      - lib/screens/ai/ai_config_screen.dart（删除配置对话框）
+      - lib/screens/profile/user_profile_screen.dart（退出登录、修改昵称对话框）
+
+### 功能完善
+25. **收支栏目合并为圆角矩形 + 结余 + 日均**
+    - 文件：lib/screens/bills/bills_screen.dart
+    - 月收支和周收支各自从两个独立卡片合并为一个圆角矩形
+    - 上半部分：收入 | 支出（左右两半，垂直分割线分隔）
+    - 下半部分：结余 + 日均收入 + 日均支出
+    - 日均计算：月日均 = 月总额 / 当月天数；周日均 = 周总额 / 7
+    - 新增 _SummaryHalf widget：收支半块（替代原 _SummaryBox）
+    - 新增 _InfoItem widget：信息小项（结余、日均等）
+
+26. **周切换时每日列表对应更换 + 切换动画**
+    - 文件：lib/screens/bills/bills_screen.dart
+    - _loadData 改为按周范围查询每日列表（原来按月查询）
+    - 切换周时每日列表对应更换为该周的日期
+    - 每日列表用 AnimatedSwitcher 包裹，切换周时整体淡入淡出 + 轻微滑动
+    - 但每个日期卡片本身不用切换动画（_DailyCard 内部动画不变）
+
+27. **厂商选择弹出列表与选择组件同宽，显示在下方不遮挡**
+    - 文件：lib/screens/ai/ai_profile_edit_screen.dart
+    - _VendorPicker 从 StatelessWidget 改为 StatefulWidget
+    - 用 OverlayEntry 替代 PopupMenuButton 实现自定义下拉
+    - 通过 GlobalKey 获取选择组件位置和大小
+    - 弹出列表定位在选择组件正下方（rect.bottom + 4）
+    - 弹出列表宽度与选择组件一致（width: rect.width）
+    - 弹出列表有缩放 + 淡入弹出动画（从顶部缩放）
+    - 点击选项或外部区域时关闭
+    - 新增 _VendorDropdown widget：弹出列表（Overlay）
+
+### 项目试运行
+28. **flutter analyze 通过（No issues found）**
+29. **Android 模拟器运行**
+    - flutter run -d emulator-5554 运行项目（Android 16 API 36）
+    - 应用启动成功，可用于测试修复后的对话框和优化后的账单页面
+
+## 版本号
+- 1.1.1 → 1.1.2（z 增加：bug 修复 + 功能完善）
+
+---
+
+## 第六轮
+
+### Bug 修复
+30. **彻底修复添加分类取消后 _dependents.isEmpty 断言错误**
+    - 根因：`showAnimatedDialog` 使用 `showGeneralDialog`（基于 `RawDialogRoute`），
+      其 `transitionBuilder` 中的 `SlideTransition`/`FadeTransition` 在退出动画期间
+      可能维护了不当的 InheritedWidget 依赖关系，导致断言错误。
+    - 修复：将 `showAnimatedDialog` 从 `showGeneralDialog` 改为 `showDialog`（基于 `DialogRoute`）。
+      `DialogRoute` 的生命周期管理更稳定，能避免关闭对话框时的依赖关系问题。
+    - 文件：lib/widgets/animated_dialog.dart
+      - `showAnimatedDialog` 改用 `showDialog` 实现
+      - 新增 `_AnimatedDialogWrapper` StatefulWidget，通过内部的 `AnimationController`
+        实现滑入 + 淡入动画，不再依赖路由级 `transitionBuilder`
+      - 保留原有的动画效果（从下方向上滑入 + 淡入）
+
+### 功能完善
+31. **周切换动画重新实现 - 确保日期列表有切换动画**
+    - 文件：lib/screens/bills/bills_screen.dart
+    - 问题：原实现中 `_prevWeek`/`_nextWeek` 先 `setState` 更新 `_selectedWeekStart`
+      （触发 AnimatedSwitcher key 变化），再异步调用 `_loadData()`。
+      但此时 `_dailyGroups` 还是旧数据，导致动画显示的是旧数据过渡到旧数据。
+    - 修复：
+      - `_loadData` 新增 `targetWeekStart` 和 `showLoading` 参数
+      - `_prevWeek`/`_nextWeek` 不再直接更新 `_selectedWeekStart`，而是将目标周
+        传给 `_loadData(targetWeekStart: ...)`
+      - `_loadData` 加载完成后，在同一个 `setState` 中同时更新 `_selectedWeekStart`
+        和 `_dailyGroups`，确保 AnimatedSwitcher 的 key 变化时 child 内容已更新
+      - 周切换时不显示全屏加载指示器（`showLoading: false`），保持原界面，
+        让 AnimatedSwitcher 播放切换动画
+
+32. **厂商选择动画改为下拉卷帘门效果**
+    - 文件：lib/screens/ai/ai_profile_edit_screen.dart
+    - 问题：原实现使用 `Transform.scale` + `Opacity` 实现缩放 + 淡入动画，
+      不是用户要求的"卷帘门"效果。
+    - 修复：将动画改为 `ClipRect` + `Align(heightFactor: animCtrl.value)` 实现
+      从顶部向下展开的卷帘门效果。
+      - `ClipRect` 裁剪超出区域
+      - `Align` 的 `heightFactor` 从 0 到 1，实现高度从 0 展开到完整高度
+      - 关闭时 `reverse()` 使 heightFactor 从 1 到 0，实现卷帘门收起效果
+    - 更新注释：从"带缩放弹出动画"改为"带卷帘门（下拉展开）动画"
+
+33. **版本号抽象到单独文件，修复"我的"页面右上角版本号**
+    - 问题：版本号硬编码在多处（pubspec.yaml、settings_screen.dart 2 处、
+      user_profile_screen.dart 2 处），且"我的"页面右上角版本号仍为旧值 v1.0.0。
+    - 修复：
+      - 新建 lib/constants/app_info.dart：集中管理应用信息（名称、版本号、版权）
+      - settings_screen.dart：版本号和开源许可页改为引用 `AppInfo.version`/`AppInfo.name`
+      - user_profile_screen.dart：
+        - 右上角菜单版本号从硬编码 `v1.0.0` 改为 `v${AppInfo.version}`
+        - 关于对话框内容从硬编码改为引用 `AppInfo.name`/`AppInfo.version`/`AppInfo.copyright`
+      - pubspec.yaml：版本号同步更新
+
+### 项目试运行
+34. **flutter analyze 通过（No issues found!）**
+35. **Android 模拟器运行**
+    - flutter run -d emulator-5554 运行项目（Android 16 API 36）
+    - 应用启动成功，可用于测试修复后的对话框、周切换动画、卷帘门动画和版本号
+
+## 版本号
+- 1.1.2 → 1.1.3（z 增加：bug 修复 + 功能完善）
+
+---
+
+## 第七轮
+
+### Bug 修复
+36. **彻底修复添加分类取消后 _dependents.isEmpty 断言错误（第 4 次修复）**
+    - 根因分析：
+      - `showAnimatedDialog` 返回的 Future 在 `Navigator.pop` 调用后立即完成，
+        但对话框的退出动画仍在播放（约 100-200ms）
+      - 外部代码在 Future 完成后立即 `dispose()` TextEditingController
+      - 此时对话框内的 TextField 仍在退出动画中，引用了已 dispose 的控制器
+      - 这破坏了 widget 树的依赖关系，触发 InheritedElement.deactivate() 中的
+        `_dependents.isEmpty` 断言
+    - 修复方案：
+      1. 新增 `showTextInputDialog` 函数和 `_TextInputDialog` StatefulWidget，
+         TextEditingController 在对话框自己的 State 中创建和销毁，
+         确保控制器生命周期与对话框完全一致（包括退出动画期间）
+      2. 简化 `showAnimatedDialog`：移除自定义 `_AnimatedDialogWrapper`，
+         直接使用 `showDialog`（DialogRoute），避免额外动画层干扰
+      3. 修改 accounting_screen.dart 的 `_addCategory`：改用 `showTextInputDialog`
+      4. 修改 category_management_screen.dart 的 `_addCategory`：改用 `showTextInputDialog`
+      5. 修改 user_profile_screen.dart 的昵称编辑：改用 `showTextInputDialog`
+         （同样存在外部 dispose 控制器的问题）
+    - 文件：
+      - lib/widgets/animated_dialog.dart（新增 showTextInputDialog + _TextInputDialog）
+      - lib/screens/accounting/accounting_screen.dart
+      - lib/screens/settings/category_management_screen.dart
+      - lib/screens/profile/user_profile_screen.dart
+
+### 功能完善
+37. **周切换动画重新实现 - 日期本身不切换，日期账单列表有切换动画**
+    - 文件：lib/screens/bills/bills_screen.dart
+    - 用户需求：
+      - 周切换器（日期本身）不需要切换动画
+      - 下面的日期账单列表需要有切换动画
+    - 修复：
+      - 移除 `_buildWeekSwitcher` 中的 `AnimatedSwitcher`，日期文本直接显示
+      - `_buildDailyList` 中的 `AnimatedSwitcher` 保留并增强：
+        滑动偏移从 0.15 改为 1.0（完整宽度滑动），让切换动画明显可见
+      - 数据加载时序优化：`_loadData` 先异步加载数据，加载完成后在同一个
+        `setState` 中同时更新 `_selectedWeekStart` 和 `_dailyGroups`，
+        确保 AnimatedSwitcher 在 key 变化时 child 内容已更新
+
+38. **设置中删除账单分组**
+    - 文件：lib/screens/settings/settings_screen.dart
+    - 移除"账单"整节（含 `_SectionTitle('账单')` 和账单分组 DropdownButton）
+    - 账单页面已重构为月份/周切换模式，不再使用 billGroupMode
+
+### 项目试运行
+39. **flutter analyze 通过（No issues found!）**
+40. **Android 模拟器运行**
+    - flutter run -d emulator-5554 运行项目（Android 16 API 36）
+    - 应用启动成功，可用于测试
+
+## 版本号
+- 1.1.3 → 1.1.4（z 增加：bug 修复 + 功能完善）
+
+---
+
+## 第八轮
+
+### 功能完善
+41. **自动添加账单添加确认按钮**
+    - 文件：lib/screens/ai/ai_accounting_screen.dart
+    - 问题：开启"自动记账"后，AI 识别完成直接静默保存，用户无法确认结果
+    - 修复：
+      - 新增 `_showAutoSaveConfirmDialog` 方法：识别完成后弹出确认对话框
+      - 新增 `_AutoSaveConfirmDialog` widget：展示识别结果列表 + 确认/取消按钮
+      - 自动保存模式下不再直接调用 `_saveAllResults`，而是先弹出确认对话框
+      - 用户点击"确认保存"后才执行保存，点击"取消"则不保存
+
+42. **自动识别账单是否有重复，重复时提示用户确认**
+    - 文件：lib/screens/ai/ai_accounting_screen.dart
+    - 重复检测逻辑：
+      - 新增 `_findDuplicates` 方法：查询最近 7 天的交易，与识别结果逐一比对
+      - 重复判断条件：同一天、相同金额、相同类型、相同分类
+      - 返回每个识别结果对应的重复交易列表
+    - 自动保存模式：确认对话框中显示重复警告（橙色提示框 + "重复"标签）
+    - 手动保存模式：
+      - 新增 `_checkDuplicatesBeforeManualSave` 方法
+      - 点击"全部保存"时先检测重复，无重复直接保存
+      - 有重复则弹出确认对话框，用户确认后才保存
+    - `_AutoSaveConfirmDialog` 对话框：
+      - 有重复时标题显示"发现重复账单" + 警告图标
+      - 重复的结果卡片显示橙色边框 + "重复"标签
+      - 无重复时标题显示"确认保存账单" + 绿色对勾图标
+
+### 项目试运行
+43. **flutter analyze 通过（No issues found!）**
+44. **Android 模拟器运行**
+    - flutter run -d emulator-5554 运行项目（Android 16 API 36）
+    - 应用启动成功，可用于测试 AI 记账确认和重复检测功能
+
+## 版本号
+- 1.1.4 → 1.1.5（z 增加：功能完善）
+
+---
+
+## 第九轮
+
+### 功能完善
+45. **删除周支出收入模块**
+    - 文件：lib/screens/bills/bills_screen.dart
+    - 用户需求：删除"本周收入/本周支出/结余/日均"的周收支汇总卡片
+    - 修改内容：
+      - 移除 `_buildWeekSummary` 方法（本周收入/支出/结余/日均卡片）
+      - 移除 `_weekIncome` 和 `_weekExpense` 状态变量
+      - 移除 `_loadData` 中的周收支计算逻辑
+      - 从 build 方法中移除 `_buildWeekSummary` 调用
+      - 更新类文档注释（布局从 5 项改为 4 项）
+    - 保留内容：
+      - 月份/年份切换器（月收支汇总保留）
+      - 周切换器（用于导航不同周的账单）
+      - 每日收支列表（主要内容）
+
+### 项目试运行
+46. **flutter analyze 通过（No issues found!）**
+47. **Android 模拟器运行**
+    - flutter run -d emulator-5554 运行项目（Android 16 API 36）
+    - 应用启动成功，可用于测试
+
+## 版本号
+- 1.1.5 → 1.1.6（z 增加：功能完善）
+
+---
+
+## 第十轮
+
+### 功能完善
+48. **创建应用图标，符合蓝色主题**
+    - 设计理念：白色硬币 + ¥ 符号，象征记账/理财，蓝色渐变背景匹配主题色 0xFF1565C0
+    - 新增文件：
+      - `android/app/src/main/res/drawable/ic_launcher_background.xml`
+        蓝色渐变背景（#1976D2 → #0D47A1），108x108 视口
+      - `android/app/src/main/res/drawable/ic_launcher_foreground.xml`
+        白色硬币外圆 + 半透明内圆 + ¥ 符号（Y 形 + 竖线 + 两横线），
+        所有内容居中于 (54,54)，符合自适应图标安全区
+      - `android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml`
+        自适应图标定义（API 26+），前景 + 背景组合
+      - `android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml`
+        圆形自适应图标定义
+    - 修改文件：
+      - `drawable/launch_background.xml` 启动画面背景改为蓝色渐变
+      - `drawable-v21/launch_background.xml` 同上（API 21+）
+    - 图标在 API 26+ 设备上使用自适应图标（矢量，无损缩放），
+      API 26 以下设备仍使用原有 PNG 图标
+
+### 项目试运行
+49. **flutter analyze 通过（No issues found!）**
+50. **Android 模拟器运行**
+    - flutter run -d emulator-5554 运行项目（Android 16 API 36）
+    - 应用启动成功，新图标已生效
+
+## 版本号
+- 1.1.6 → 1.1.7（z 增加：功能完善）
+
+---
+
+## 第十一轮
+
+### 功能完善
+51. **删除账单页右上角筛选按钮**
+    - `bills_screen.dart` 移除 AppBar 中的 IconButton（筛选账单）
+    - 移除 `_openFilterSheet` 方法
+    - 移除 `_FilterSheet` / `_FilterSheetState` 类（约 160 行）
+
+52. **图标改为存钱罐 + anti logo**
+    - `ic_launcher_foreground.xml` 重新设计：
+      - 存钱罐主体（圆角矩形身体 + 投币口 + 两只耳朵 + 眼睛 + 嘴巴 + 两条腿）
+      - "anti" 文字 logo（a/n/t/i 四个字母，矢量笔画绘制）
+    - 颜色：蓝色 #1565C0（罐身）+ 白色（眼睛/嘴巴/投币口镂空）
+
+53. **开屏界面和主题色调改为白色**
+    - `ic_launcher_background.xml` 从蓝色渐变改为纯白 #FFFFFF
+    - `ic_launcher_foreground.xml` 颜色从白改为蓝（适配白底）
+    - `launch_background.xml` 从蓝色渐变改为纯白
+    - `drawable-v21/launch_background.xml` 同上
+    - `main.dart` 主题改为白色基调：
+      - `ColorScheme.fromSeed` + `surface: Colors.white`
+      - `AppBarTheme` 白色背景 + 蓝色前景
+      - `scaffoldBackgroundColor: Colors.white`
+      - `cardTheme` 白色卡片
+
+### 项目试运行
+54. **flutter analyze 通过（No issues found!）**
+55. **Android 模拟器运行**
+    - 启动 Medium_Phone_API_36.1 模拟器
+    - flutter run -d emulator-5554 运行项目
+
+## 版本号
+- 1.1.7 → 1.1.8（z 增加：功能完善）
+
+---
+
+## 第十二轮
+
+### 功能完善
+56. **图标改为艺术字大 A，横线为存钱罐投币口形状**
+    - `ic_launcher_foreground.xml` 重新设计：
+      - 大 A 由两条粗斜杠（左斜杠 + 右斜杠）+ 底部加宽的左右脚组成
+      - A 的横线替换为存钱罐投币口：蓝色圆角矩形外框 + 白色内槽 + 两端铆钉装饰
+      - 颜色：蓝色 #1565C0 + 白色镂空，白色背景
+
+57. **开屏界面下方增加 AntiCount 的 logo**
+    - `main.dart` 中 `_RootGate` 初始化界面重新设计：
+      - 白色背景 + 居中蓝色加载指示器
+      - 底部 AntiCount logo：艺术字 A 图标（CustomPaint 绘制）+ "AntiCount" 文字 + "智能记账" 副标题
+      - 新增 `_LogoAPainter` 类：用 Canvas 绘制简版艺术字 A（与 App 图标风格一致）
+
+### 项目试运行
+58. **flutter analyze 通过（No issues found!）**
+59. **Android 模拟器运行**
+    - flutter run -d emulator-5554 运行项目（Android 16 API 36）
+
+## 版本号
+- 1.1.8 → 1.1.9（z 增加：功能完善）
+
+---
+
+## 第十三轮
+
+### 功能完善
+60. **参考 anticraft 网站图标风格，重新设计记账主题图标**
+    - 读取网站 http://47.100.125.150/ 的 favicon.svg：
+      - 紫色圆角方形背景 + 白色 N 字母 + 青色对角斜线
+    - 参考该风格设计记账主题图标：
+      - `ic_launcher_background.xml` 改为蓝色背景 #1565C0（匹配应用主题色）
+      - `ic_launcher_foreground.xml` 重新设计：
+        - 白色大 A 艺术字（左斜杠 + 右斜杠 + 底部加宽左右脚）
+        - A 的横线为存钱罐投币口（白色外框 + 蓝色内槽 + 两端铆钉）
+        - 青色增长斜线 #00CEC9（从左下到右上，参考网站对角线，代表财务增长趋势）
+    - `main.dart` 中 `_LogoAPainter` 同步更新：
+      - 新增青色增长斜线绘制（与 App 图标风格一致）
+
+### 项目试运行
+61. **flutter analyze 通过（No issues found!）**
+62. **Android 模拟器运行**
+    - flutter run -d emulator-5554 运行项目（Android 16 API 36）
+
+## 版本号
+- 1.1.9 → 1.1.10（z 增加：功能完善）
+
+---
+
+## 第十四轮
+
+### 功能完善
+63. **直接改成网站图标（不再使用自定义设计）**
+    - 读取 anticraft 网站 favicon.svg 原始设计：
+      - 紫色圆角方形背景 #6c5ce7（rx=12）
+      - 白色 N 字母路径
+      - 青色对角斜线 #00cec9
+    - `ic_launcher_background.xml` 改为纯紫背景 #6C5CE7
+    - `ic_launcher_foreground.xml` 直接转换 SVG 路径：
+      - 白色 N 字母（原始路径缩放 ×1.5 + 偏移 6，适配 108x108 视口）
+      - 青色对角斜线（M27,78 L81,30，strokeWidth=4.5）
+    - `main.dart` 开屏 logo 重新设计：
+      - `_LogoAPainter` 替换为 `_LogoNPainter`
+      - 绘制紫色圆角方形 + 白色 N + 青色斜线（与 App 图标完全一致）
+      - 加载指示器颜色改为紫色 #6C5CE7
+      - AntiCount 文字颜色改为紫色 #6C5CE7
+
+### 项目试运行
+64. **flutter analyze 通过（No issues found!）**
+65. **Android 模拟器运行**
+    - flutter run -d emulator-5554 运行项目（Android 16 API 36）
+
+## 版本号
+- 1.1.10 → 1.1.11（z 增加：功能完善）
+
+---
+
+## 第十五轮
+
+### 功能完善
+66. **图标改为圆角矩形**
+    - 问题：原来自适应图标（mipmap-anydpi-v26）会被系统遮罩为圆形/水滴形，不是圆角矩形
+    - 解决方案：绕过自适应图标系统，使用非自适应的 vector drawable
+    - 新建 `drawable/ic_launcher.xml`：完整的圆角矩形图标
+      - 紫色圆角矩形背景 #6C5CE7（rx=20，比例 12/64×108）
+      - 白色 N 字母（缩放自原始 SVG 路径）
+      - 青色对角斜线 #00CEC9
+    - `AndroidManifest.xml` 中 `android:icon` 从 `@mipmap/ic_launcher` 改为 `@drawable/ic_launcher`
+    - 不再使用 mipmap-anydpi-v26 的自适应图标定义，图标固定为圆角矩形形状
+
+### 项目试运行
+67. **flutter analyze 通过（No issues found!）**
+68. **Android 模拟器运行**
+    - flutter run -d emulator-5554 运行项目（Android 16 API 36）
+
+## 版本号
+- 1.1.11 → 1.1.12（z 增加：功能完善）
+
+---
+
+## 第十六轮
+
+### bug修复
+69. **年月日期切换不要使用动画 + 年月切换未更新周和日期显示**
+    - 问题1：月份切换器使用了 AnimatedSwitcher 滑动动画，用户不想要动画
+    - 修复1：`bills_screen.dart` `_buildMonthSwitcher` 移除 AnimatedSwitcher，直接显示月份文本
+    - 问题2：切换月份时只更新了 `_selectedMonth`，没有更新 `_selectedWeekStart`，导致周和日期列表仍显示旧月份的数据
+    - 修复2：`_prevMonth`/`_nextMonth`/`_pickMonth` 切换月份时同步传入 `targetWeekStart`（新月份第1天所在的周一），确保周和日期列表同步更新
+    - 移除不再使用的 `_monthAnimForward` 变量
+
+70. **识别后下方组件留出至少能到导航栏的空白**
+    - 问题：AI 识别结果页面底部没有留足够空间，保存按钮被导航栏遮挡
+    - 修复：`ai_accounting_screen.dart` SingleChildScrollView 的 padding 从 `symmetric(horizontal: 20, vertical: 12)` 改为 `fromLTRB(20, 12, 20, 120)`，底部留 120px 空白
+
+### 项目试运行
+71. **flutter analyze 通过（No issues found!）**
+72. **Android 模拟器运行**
+    - 启动 Medium Phone API 36.1 模拟器
+    - flutter run -d emulator-5554 运行项目（Android 16 API 36）
+
+## 版本号
+- 1.1.12 → 1.1.13（z 增加：bug修复）
+
+---
+
+## 第十七轮
+
+### 功能完善
+73. **AI 记账界面移除灰色配置信息组件**
+    - 文件：lib/screens/ai/ai_accounting_screen.dart
+    - 用户需求：AI 记账界面的灰色配置信息 Card 不要了，配置在设置里改就行
+    - 修改：移除 `_buildContent` 中的配置信息 Card（显示当前配置名、识别模型、切换按钮的灰色卡片）
+    - 清理不再使用的变量：activeProfile、textModelId、multimodalModelId、useImageMode、displayName
+    - 配置修改入口保留在 AppBar 右上角的设置按钮
+
+74. **选择厂商后添加跳转开放平台按钮**
+    - 文件：pubspec.yaml
+      - 新增 url_launcher: ^6.3.2 依赖
+    - 文件：lib/screens/ai/ai_profile_edit_screen.dart
+      - 新增 import url_launcher
+      - 新增 `_launchVendorPlatform` 方法：用 `launchUrl` 打开对应厂商的开放平台 URL（externalApplication 模式）
+      - 在厂商选择器下方，选择厂商后显示"前往 xxx 开放平台"TextButton.icon 按钮
+      - 打开失败时弹出提示对话框显示手动访问地址
+    - 厂商开放平台 URL 复用 ai_service.dart 中 AiVendor.helpUrl（已有 7 个厂商的 URL）
+
+75. **配置管理三个点弹出菜单不覆盖按钮 + 再次点击收起**
+    - 文件：lib/screens/ai/ai_config_screen.dart
+    - 用户需求：
+      1. 弹出菜单不要覆盖三个点按钮
+      2. 展开后再次点击三个点应收起
+    - 旧实现：PopupMenuButton（默认菜单覆盖在按钮上方，再次点击会关闭后立即重新打开）
+    - 新实现：自定义 _ProfileMenuButton（StatefulWidget）+ _ProfileMenuDropdown（Overlay）
+      - 用 GlobalKey 获取三个点按钮位置，菜单定位在按钮下方（top: rect.bottom + 4）
+      - 菜单右对齐按钮（right 对齐），不覆盖按钮本身
+      - 点击三个点：菜单已打开则关闭，未打开则打开（_toggle 方法实现再次点击收起）
+      - 点击菜单项：执行回调并关闭
+      - 点击外部透明遮罩：关闭
+      - dispose 时自动移除 OverlayEntry
+    - 菜单项显示图标 + 文字（编辑/删除），带圆角矩形 + 阴影样式
+
+### 项目试运行
+76. **flutter analyze 通过（No issues found!）**
+77. **Android 模拟器运行**
+    - flutter run -d emulator-5554 运行项目（Android 16 API 36）
+    - 应用启动成功，可用于测试 AI 记账界面精简、厂商开放平台跳转、配置管理菜单优化
+
+## 版本号
+- 1.1.13 → 1.1.14（z 增加：功能完善）

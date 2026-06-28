@@ -33,9 +33,6 @@ class _BillsScreenState extends State<BillsScreen> {
   /// 当前选中的周（用该周周一表示）
   DateTime _selectedWeekStart = _mondayOf(DateTime.now());
 
-  /// 月份切换动画方向（true=向右滑/前进，false=向左滑/后退）
-  bool _monthAnimForward = true;
-
   /// 周切换动画方向
   bool _weekAnimForward = true;
 
@@ -135,22 +132,21 @@ class _BillsScreenState extends State<BillsScreen> {
   }
 
   /// 上一月
+  ///
+  /// 切换月份时同步更新周：新月份的周设为该月第 1 天所在的周。
   void _prevMonth() {
-    setState(() {
-      _monthAnimForward = false;
-      _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1, 1);
-    });
-    _loadData();
+    final newMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1, 1);
+    setState(() => _selectedMonth = newMonth);
+    // 周更新为新月份第 1 天所在的周一
+    _loadData(targetWeekStart: _mondayOf(DateTime(newMonth.year, newMonth.month, 1)));
   }
 
   /// 下一月
   void _nextMonth() {
     if (!_canNextMonth) return;
-    setState(() {
-      _monthAnimForward = true;
-      _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 1);
-    });
-    _loadData();
+    final newMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 1);
+    setState(() => _selectedMonth = newMonth);
+    _loadData(targetWeekStart: _mondayOf(DateTime(newMonth.year, newMonth.month, 1)));
   }
 
   /// 点击月份文本 → 弹出年月选择器
@@ -165,11 +161,9 @@ class _BillsScreenState extends State<BillsScreen> {
       ),
     );
     if (picked != null && picked != _selectedMonth) {
-      setState(() {
-        _monthAnimForward = picked.isAfter(_selectedMonth);
-        _selectedMonth = DateTime(picked.year, picked.month, 1);
-      });
-      _loadData();
+      setState(() => _selectedMonth = DateTime(picked.year, picked.month, 1));
+      // 周更新为选中月份第 1 天所在的周一
+      _loadData(targetWeekStart: _mondayOf(DateTime(picked.year, picked.month, 1)));
     }
   }
 
@@ -280,7 +274,7 @@ class _BillsScreenState extends State<BillsScreen> {
 
   /// 月份/年份切换器
   ///
-  /// 左右按钮 + 可点击的月份文本，切换带滑动动画，不可切换时按钮变灰。
+  /// 左右按钮 + 可点击的月份文本，无切换动画，不可切换时按钮变灰。
   Widget _buildMonthSwitcher(BuildContext context) {
     final title = '${_selectedMonth.year}年${_selectedMonth.month}月';
     return Padding(
@@ -294,7 +288,7 @@ class _BillsScreenState extends State<BillsScreen> {
             onPressed: _prevMonth,
             enabled: true,
           ),
-          // 月份文本（点击切换）
+          // 月份文本（点击弹出年月选择器）
           GestureDetector(
             onTap: _pickMonth,
             child: Container(
@@ -303,26 +297,13 @@ class _BillsScreenState extends State<BillsScreen> {
                 borderRadius: BorderRadius.circular(20),
                 color: Theme.of(context).colorScheme.primaryContainer,
               ),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 250),
-                switchInCurve: Curves.easeOut,
-                switchOutCurve: Curves.easeIn,
-                transitionBuilder: (child, animation) {
-                  // 根据切换方向做左右滑动动画
-                  final offset = Tween<Offset>(
-                    begin: Offset(_monthAnimForward ? 1 : -1, 0),
-                    end: Offset.zero,
-                  ).animate(animation);
-                  return SlideTransition(position: offset, child: child);
-                },
-                child: Text(
-                  title,
-                  key: ValueKey(title),
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
-                  ),
+              // 直接显示文本，不使用动画
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
                 ),
               ),
             ),

@@ -435,83 +435,14 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
 
   Widget _buildContent(BuildContext context, AiProvider ai) {
     final showImagePicker = ai.supportsMultimodal;
-    final activeProfile = ai.activeProfile;
     // 在 build 方法中用 watch 建立依赖，确保设置变化时 UI 更新
     final autoSave = context.watch<SettingsProvider>().autoSaveAiBills;
-    // 文字识别实际生效的模型
-    final textModelId = ai.effectiveTextConfig?.modelId;
-    // 图像识别实际生效的模型
-    final multimodalModelId = ai.effectiveMultimodalConfig?.modelId;
-    // 当前是否处于图片识别模式
-    final useImageMode = _selectedImages.isNotEmpty && ai.supportsMultimodal;
-    // 当前展示的配置名（依据识别模式）
-    final displayName = useImageMode
-        ? (ai.activeMultimodalProfile?.name ?? '')
-        : (activeProfile?.name ?? '');
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      // 底部留出足够空间，确保识别结果和保存按钮能滚动到导航栏上方
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 当前配置信息 + 识别模型
-          if (activeProfile != null)
-            Card(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              margin: const EdgeInsets.only(bottom: 16),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.bolt, size: 18),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            displayName,
-                            style: const TextStyle(fontSize: 13),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                                builder: (_) => const AiConfigScreen()),
-                          ),
-                          child: const Text('切换'),
-                        ),
-                      ],
-                    ),
-                    const Divider(height: 8),
-                    // 显示当前识别类型对应的模型
-                    Row(
-                      children: [
-                        Icon(
-                          useImageMode
-                              ? Icons.image_outlined
-                              : Icons.text_snippet_outlined,
-                          size: 16,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            useImageMode
-                                ? '图像识别 → ${multimodalModelId ?? "未配置多模态"}'
-                                : '文字识别 → ${textModelId ?? "未配置文本"}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Theme.of(context).colorScheme.onSurface.withAlpha(160),
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
           // 文本输入
           TextField(
             controller: _textCtrl,

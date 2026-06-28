@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/ai_provider.dart';
 import '../../services/ai_service.dart';
@@ -67,6 +68,21 @@ class _AiProfileEditScreenState extends State<AiProfileEditScreen> {
           ? v.multimodalModelIds.first
           : null;
     });
+  }
+
+  /// 跳转到对应厂商的开放平台（获取 API Key）
+  Future<void> _launchVendorPlatform() async {
+    if (_vendor == null) return;
+    final url = Uri.parse(_vendor!.helpUrl);
+    // 优先尝试打开 URL，失败时提示用户
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      if (!mounted) return;
+      await showInfoDialog(
+        context: context,
+        title: '打开失败',
+        content: '无法打开 ${_vendor!.label} 的开放平台，请手动访问：\n${_vendor!.helpUrl}',
+      );
+    }
   }
 
   /// 保存配置
@@ -210,7 +226,7 @@ class _AiProfileEditScreenState extends State<AiProfileEditScreen> {
             ),
           ),
 
-          // 厂商选择（圆角矩形 + PopupMenuButton 弹出动画）
+          // 厂商选择（圆角矩形 + 自定义 Overlay 下拉列表）
           _SectionTitle('厂商'),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -219,6 +235,19 @@ class _AiProfileEditScreenState extends State<AiProfileEditScreen> {
               onChanged: _onVendorChanged,
             ),
           ),
+          // 选择厂商后提供跳转开放平台按钮（获取 API Key）
+          if (_vendor != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _launchVendorPlatform,
+                  icon: const Icon(Icons.open_in_new, size: 18),
+                  label: Text('前往 ${_vendor!.label} 开放平台'),
+                ),
+              ),
+            ),
 
           // API Key
           if (_vendor != null) ...[
