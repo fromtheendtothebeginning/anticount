@@ -37,7 +37,10 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     setState(() => _loading = false);
     if (ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('密码已重置，请使用新密码登录')),
+        const SnackBar(
+          content: Text('密码已重置，请使用新密码登录'),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       Navigator.of(context).pop();
     } else {

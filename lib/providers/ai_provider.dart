@@ -4,42 +4,94 @@ import '../services/ai_service.dart';
 
 /// AI 配置与识别状态
 ///
-/// 管理多个 AI Profile，支持增删改查和激活切换。
+/// 管理多个 AI Profile，支持增删改查。
+/// 文字识别和图像识别可分别选择不同的 Profile 及具体模型 ID。
+/// 模型 ID 可在同一 Profile 下切换（覆盖 Profile 默认 modelId）。
 class AiProvider extends ChangeNotifier {
   AiProvider(this._service);
 
   final AiService _service;
 
   List<AiProfile> _profiles = const [];
-  String? _activeProfileId;
+  String? _activeTextProfileId;
+  String? _activeMultimodalProfileId;
+  // 当前选中的模型 ID（覆盖 Profile 默认）。为 null 时使用 Profile 默认模型。
+  String? _activeTextModelId;
+  String? _activeMultimodalModelId;
   bool _initialized = false;
 
   List<AiProfile> get profiles => _profiles;
   bool get initialized => _initialized;
 
-  /// 当前激活的配置
-  AiProfile? get activeProfile {
-    if (_activeProfileId == null) return null;
+  /// 文字识别当前激活的配置
+  AiProfile? get activeTextProfile {
+    if (_activeTextProfileId == null) return null;
+    if (_profiles.isEmpty) return null;
     return _profiles.firstWhere(
-      (p) => p.id == _activeProfileId,
+      (p) => p.id == _activeTextProfileId,
       orElse: () => _profiles.first,
     );
   }
 
-  /// 是否有可用配置
-  bool get hasAvailableProfile =>
-      activeProfile != null && activeProfile!.hasTextModel;
+  /// 图像识别当前激活的配置
+  AiProfile? get activeMultimodalProfile {
+    if (_activeMultimodalProfileId == null) return null;
+    if (_profiles.isEmpty) return null;
+    return _profiles.firstWhere(
+      (p) => p.id == _activeMultimodalProfileId,
+      orElse: () => _profiles.first,
+    );
+  }
 
-  /// 当前激活配置是否支持多模态（有配置多模态模型且厂商支持）
+  /// 兼容旧代码：返回文字识别配置
+  AiProfile? get activeProfile => activeTextProfile;
+
+  /// 文字识别当前选中的模型 ID（若为 null，则使用 Profile 默认）
+  String? get activeTextModelId => _activeTextModelId;
+  String? get activeMultimodalModelId => _activeMultimodalModelId;
+
+  /// 文字识别实际生效的配置（vendor + apiKey 来自 Profile，modelId 可被覆盖）
+  AiModelConfig? get effectiveTextConfig {
+    final profile = activeTextProfile;
+    if (profile == null || profile.textConfig == null) return null;
+    final base = profile.textConfig!;
+    final modelId = _activeTextModelId ?? base.modelId;
+    return AiModelConfig(
+      vendor: base.vendor,
+      apiKey: base.apiKey,
+      modelId: modelId,
+    );
+  }
+
+  /// 图像识别实际生效的配置（vendor + apiKey 来自 Profile，modelId 可被覆盖）
+  AiModelConfig? get effectiveMultimodalConfig {
+    final profile = activeMultimodalProfile;
+    if (profile == null || profile.multimodalConfig == null) return null;
+    final base = profile.multimodalConfig!;
+    final modelId = _activeMultimodalModelId ?? base.modelId;
+    return AiModelConfig(
+      vendor: base.vendor,
+      apiKey: base.apiKey,
+      modelId: modelId,
+    );
+  }
+
+  /// 是否有可用的文字识别配置
+  bool get hasAvailableProfile => effectiveTextConfig?.isValid ?? false;
+
+  /// 是否有可用的图像识别配置
   bool get supportsMultimodal =>
-      activeProfile != null &&
-      activeProfile!.hasMultimodalModel &&
-      activeProfile!.multimodalConfig!.vendor.supportsMultimodal;
+      effectiveMultimodalConfig != null &&
+      effectiveMultimodalConfig!.vendor.supportsMultimodal &&
+      effectiveMultimodalConfig!.isValid;
 
   /// 启动时加载配置
   Future<void> bootstrap() async {
     _profiles = await _service.getProfiles();
-    _activeProfileId = await _service.getActiveProfileId();
+    _activeTextProfileId = await _service.getActiveTextProfileId();
+    _activeMultimodalProfileId = await _service.getActiveMultimodalProfileId();
+    _activeTextModelId = await _service.getActiveTextModelId();
+    _activeMultimodalModelId = await _service.getActiveMultimodalModelId();
     _initialized = true;
     notifyListeners();
   }
@@ -48,10 +100,19 @@ class AiProvider extends ChangeNotifier {
   Future<void> addProfile(AiProfile profile) async {
     await _service.addProfile(profile);
     _profiles = await _service.getProfiles();
-    // 如果是第一个配置，自动激活
+    // 如果是第一个配置，自动激活文字识别
     if (_profiles.length == 1) {
-      _activeProfileId = profile.id;
-      await _service.setActiveProfileId(profile.id);
+      _activeTextProfileId = profile.id;
+      _activeTextModelId = profile.textConfig?.modelId;
+      await _service.setActiveTextProfileId(profile.id);
+      await _service.setActiveTextModelId(_activeTextModelId);
+      // 如果该配置有多模态，也自动激活图像识别
+      if (profile.hasMultimodalModel) {
+        _activeMultimodalProfileId = profile.id;
+        _activeMultimodalModelId = profile.multimodalConfig?.modelId;
+        await _service.setActiveMultimodalProfileId(profile.id);
+        await _service.setActiveMultimodalModelId(_activeMultimodalModelId);
+      }
     }
     notifyListeners();
   }
@@ -60,6 +121,28 @@ class AiProvider extends ChangeNotifier {
   Future<void> updateProfile(AiProfile profile) async {
     await _service.updateProfile(profile);
     _profiles = await _service.getProfiles();
+    // 如果当前激活的 Profile 被更新，同步刷新模型 ID（防止旧 modelId 失效）
+    if (_activeTextProfileId == profile.id) {
+      final newModelId = profile.textConfig?.modelId;
+      // 若当前选中的模型 ID 不在新厂商的可用模型中，则重置为默认
+      if (newModelId == null ||
+          (_activeTextModelId != null &&
+              !profile.textConfig!.vendor.allModelIds
+                  .contains(_activeTextModelId))) {
+        _activeTextModelId = newModelId;
+        await _service.setActiveTextModelId(newModelId);
+      }
+    }
+    if (_activeMultimodalProfileId == profile.id) {
+      final newModelId = profile.multimodalConfig?.modelId;
+      if (newModelId == null ||
+          (_activeMultimodalModelId != null &&
+              !profile.multimodalConfig!.vendor.multimodalModelIds
+                  .contains(_activeMultimodalModelId))) {
+        _activeMultimodalModelId = newModelId;
+        await _service.setActiveMultimodalModelId(newModelId);
+      }
+    }
     notifyListeners();
   }
 
@@ -67,44 +150,104 @@ class AiProvider extends ChangeNotifier {
   Future<void> removeProfile(String id) async {
     await _service.removeProfile(id);
     _profiles = await _service.getProfiles();
-    _activeProfileId = await _service.getActiveProfileId();
+    _activeTextProfileId = await _service.getActiveTextProfileId();
+    _activeMultimodalProfileId =
+        await _service.getActiveMultimodalProfileId();
+    _activeTextModelId = await _service.getActiveTextModelId();
+    _activeMultimodalModelId = await _service.getActiveMultimodalModelId();
     notifyListeners();
   }
 
-  /// 切换激活配置
-  Future<void> setActiveProfile(String id) async {
-    await _service.setActiveProfileId(id);
-    _activeProfileId = id;
+  /// 切换文字识别 Profile（同时重置模型 ID 为 Profile 默认）
+  Future<void> setActiveTextProfile(String id) async {
+    await _service.setActiveTextProfileId(id);
+    _activeTextProfileId = id;
+    // 重置模型 ID 为 Profile 默认
+    final profile =
+        _profiles.firstWhere((p) => p.id == id, orElse: () => _profiles.first);
+    final defaultModelId = profile.textConfig?.modelId;
+    _activeTextModelId = defaultModelId;
+    await _service.setActiveTextModelId(defaultModelId);
     notifyListeners();
   }
 
-  /// 文本识别（使用激活配置）
+  /// 切换图像识别 Profile（同时重置模型 ID 为 Profile 默认）
+  Future<void> setActiveMultimodalProfile(String id) async {
+    await _service.setActiveMultimodalProfileId(id);
+    _activeMultimodalProfileId = id;
+    final profile =
+        _profiles.firstWhere((p) => p.id == id, orElse: () => _profiles.first);
+    final defaultModelId = profile.multimodalConfig?.modelId;
+    _activeMultimodalModelId = defaultModelId;
+    await _service.setActiveMultimodalModelId(defaultModelId);
+    notifyListeners();
+  }
+
+  /// 切换文字识别的具体模型 ID（保持当前 Profile，仅覆盖 modelId）
+  Future<void> setActiveTextModel(String modelId) async {
+    _activeTextModelId = modelId;
+    await _service.setActiveTextModelId(modelId);
+    notifyListeners();
+  }
+
+  /// 切换图像识别的具体模型 ID（保持当前 Profile，仅覆盖 modelId）
+  Future<void> setActiveMultimodalModel(String modelId) async {
+    _activeMultimodalModelId = modelId;
+    await _service.setActiveMultimodalModelId(modelId);
+    notifyListeners();
+  }
+
+  /// 一次性选择文字识别的 Profile + 模型 ID
+  ///
+  /// 用于配置界面：用户在某个 Profile 下点击具体模型时调用。
+  /// 若 Profile 与当前不同，先切换 Profile（会重置模型为默认），
+  /// 再覆盖为用户选中的模型 ID。
+  Future<void> selectTextModel(String profileId, String modelId) async {
+    if (_activeTextProfileId != profileId) {
+      await setActiveTextProfile(profileId);
+    }
+    await setActiveTextModel(modelId);
+  }
+
+  /// 一次性选择图像识别的 Profile + 模型 ID
+  Future<void> selectMultimodalModel(String profileId, String modelId) async {
+    if (_activeMultimodalProfileId != profileId) {
+      await setActiveMultimodalProfile(profileId);
+    }
+    await setActiveMultimodalModel(modelId);
+  }
+
+  /// 文本识别（使用文字识别配置 + 当前选中的模型 ID）
   Future<AiRecognitionResult> recognizeFromText({
     required String text,
     required List<String> expenseCategories,
     required List<String> incomeCategories,
   }) async {
-    final profile = activeProfile;
-    if (profile == null) throw const AiException('未选择 AI 配置');
+    final config = effectiveTextConfig;
+    if (config == null || !config.isValid) {
+      throw const AiException('未选择文字识别配置');
+    }
     return _service.recognizeFromText(
-      profile: profile,
+      config: config,
       text: text,
       expenseCategories: expenseCategories,
       incomeCategories: incomeCategories,
     );
   }
 
-  /// 图片识别（使用激活配置）
+  /// 图片识别（使用图像识别配置 + 当前选中的模型 ID）
   Future<AiRecognitionResult> recognizeFromImage({
     required String base64Image,
     String? textHint,
     required List<String> expenseCategories,
     required List<String> incomeCategories,
   }) async {
-    final profile = activeProfile;
-    if (profile == null) throw const AiException('未选择 AI 配置');
+    final config = effectiveMultimodalConfig;
+    if (config == null || !config.isValid) {
+      throw const AiException('未选择图像识别配置');
+    }
     return _service.recognizeFromImage(
-      profile: profile,
+      config: config,
       base64Image: base64Image,
       textHint: textHint,
       expenseCategories: expenseCategories,

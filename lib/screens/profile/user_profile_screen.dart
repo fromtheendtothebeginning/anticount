@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
+import '../../constants/app_info.dart';
 import '../../models/user.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
@@ -28,17 +29,17 @@ class UserProfileScreen extends StatelessWidget {
           PopupMenuButton<String>(
             onSelected: (value) => _handleMenu(context, value),
             icon: const Icon(Icons.more_vert),
-            itemBuilder: (context) => const [
+            itemBuilder: (context) => [
               PopupMenuItem(
                 value: 'version',
                 child: ListTile(
-                  leading: Icon(Icons.info_outline),
-                  title: Text('版本 v1.0.0'),
+                  leading: const Icon(Icons.info_outline),
+                  title: Text('版本 v${AppInfo.version}'),
                   contentPadding: EdgeInsets.zero,
                   dense: true,
                 ),
               ),
-              PopupMenuItem(
+              const PopupMenuItem(
                 value: 'logout',
                 child: ListTile(
                   leading: Icon(Icons.logout),
@@ -98,18 +99,18 @@ class UserProfileScreen extends StatelessWidget {
       final ok = await showAnimatedDialog<bool>(
         context: context,
         barrierLabel: '退出登录',
-        builder: (_) => AlertDialog(
+        builder: (dialogContext) => AlertDialog(
           title: const Text('退出登录'),
           content: Text(retain
               ? '确认退出当前账号？\n你的记账数据将保留，下次登录可继续查看。'
               : '确认退出当前账号？\n根据你的设置，退出后本地记账数据将被清除。'),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(dialogContext, false),
               child: const Text('取消'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () => Navigator.pop(dialogContext, true),
               child: const Text('退出'),
             ),
           ],
@@ -121,8 +122,8 @@ class UserProfileScreen extends StatelessWidget {
     } else if (value == 'version') {
       await showInfoDialog(
         context: context,
-        title: '关于 Anticount',
-        content: '版本：1.0.0\n© 2026 Anticraft',
+        title: '关于 ${AppInfo.name}',
+        content: '版本：${AppInfo.version}\n${AppInfo.copyright}',
       );
     }
   }
@@ -332,7 +333,10 @@ class _AvatarPickerState extends State<_AvatarPicker> {
     if (!mounted) return;
     setState(() => _saving = false);
     if (ok) {
-      messenger.showSnackBar(const SnackBar(content: Text('头像已更新')));
+      messenger.showSnackBar(const SnackBar(
+        content: Text('头像已更新'),
+        behavior: SnackBarBehavior.floating,
+      ));
     } else {
       await showInfoDialog(
         context: context,
@@ -367,7 +371,10 @@ class _AvatarPickerState extends State<_AvatarPicker> {
     if (!mounted) return;
     setState(() => _saving = false);
     if (ok) {
-      messenger.showSnackBar(const SnackBar(content: Text('头像已删除')));
+      messenger.showSnackBar(const SnackBar(
+        content: Text('头像已删除'),
+        behavior: SnackBarBehavior.floating,
+      ));
     } else {
       await showInfoDialog(
         context: context,
@@ -446,54 +453,34 @@ class _NicknameEditorState extends State<_NicknameEditor> {
     final user = widget.user;
     if (user == null) return;
 
-    final ctrl = TextEditingController(text: user.nickname ?? '');
     final authProvider = context.read<AuthProvider>();
     final messenger = ScaffoldMessenger.of(context);
 
-    final ok = await showAnimatedDialog<bool>(
+    // 对话框内部管理 TextEditingController 生命周期，返回输入的文本或 null
+    final text = await showTextInputDialog(
       context: context,
-      barrierLabel: '修改昵称',
-      builder: (_) => AlertDialog(
-        title: const Text('修改昵称'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: '昵称',
-            hintText: '请输入昵称（最多 20 个字符）',
-            border: OutlineInputBorder(),
-          ),
-          maxLength: 20,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('保存'),
-          ),
-        ],
-      ),
+      title: '修改昵称',
+      hintText: '请输入昵称（最多 20 个字符）',
+      initialValue: user.nickname ?? '',
+      confirmText: '保存',
+      cancelText: '取消',
+      maxLength: 20,
     );
 
-    if (ok != true) {
-      ctrl.dispose();
-      return;
-    }
+    // 用户取消则直接返回
+    if (text == null || text.isEmpty) return;
 
-    final ok2 = await authProvider.updateProfile(
-      nickname: ctrl.text,
+    final ok = await authProvider.updateProfile(
+      nickname: text,
       avatar: user.avatar,
     );
 
-    if (!mounted) {
-      ctrl.dispose();
-      return;
-    }
-    if (ok2) {
-      messenger.showSnackBar(const SnackBar(content: Text('昵称已更新')));
+    if (!mounted) return;
+    if (ok) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('昵称已更新'),
+        behavior: SnackBarBehavior.floating,
+      ));
     } else {
       await showInfoDialog(
         context: context,
@@ -501,7 +488,6 @@ class _NicknameEditorState extends State<_NicknameEditor> {
         content: '昵称更新失败，请重试',
       );
     }
-    ctrl.dispose();
   }
 
   @override

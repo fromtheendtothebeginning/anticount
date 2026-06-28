@@ -41,7 +41,10 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     setState(() => _loading = false);
     if (ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('账号已删除')),
+        const SnackBar(
+          content: Text('账号已删除'),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       // 登出后根路由会自动切回登录页
     } else {

@@ -8,7 +8,9 @@ import 'ai_profile_edit_screen.dart';
 
 /// AI 配置页面
 ///
-/// 展示所有 AI 配置（Profile），支持创建、编辑、删除、切换激活。
+/// 上半部分按"文字识别 / 图像识别"分组展示当前选中模型，
+/// 展开后按 Profile 分组列出该厂商所有可选模型，用户可任意切换。
+/// 下半部分为配置管理（创建 / 编辑 / 删除 Profile）。
 class AiConfigScreen extends StatelessWidget {
   const AiConfigScreen({super.key});
 
@@ -20,7 +22,27 @@ class AiConfigScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('AI 配置')),
       body: ai.profiles.isEmpty
           ? _buildEmpty(context)
-          : _buildProfileList(context, ai),
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+              children: [
+                // 文字识别分组
+                _RecognitionSection(
+                  title: '文字识别',
+                  icon: Icons.text_fields_outlined,
+                  isMultimodal: false,
+                ),
+                const SizedBox(height: 8),
+                // 图像识别分组
+                _RecognitionSection(
+                  title: '图像识别',
+                  icon: Icons.image_outlined,
+                  isMultimodal: true,
+                ),
+                const SizedBox(height: 16),
+                // 配置管理
+                _ManagementSection(),
+              ],
+            ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const AiProfileEditScreen()),
@@ -55,30 +77,335 @@ class AiConfigScreen extends StatelessWidget {
       ),
     );
   }
+}
 
-  /// 配置列表
-  Widget _buildProfileList(BuildContext context, AiProvider ai) {
-    final activeId = ai.activeProfile?.id;
-    return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 80),
-      itemCount: ai.profiles.length,
-      itemBuilder: (context, i) {
-        final profile = ai.profiles[i];
-        final isActive = profile.id == activeId;
-        return _ProfileCard(
-          profile: profile,
-          isActive: isActive,
-          onActivate: isActive ? null : () => ai.setActiveProfile(profile.id),
-          onEdit: () => Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => AiProfileEditScreen(profile: profile),
+/// 识别类型分组（文字识别 / 图像识别）
+///
+/// 展开后按 Profile 分组，列出每个 Profile 对应厂商的所有可选模型。
+/// 用户点击具体模型即可切换激活的 Profile + 模型。
+class _RecognitionSection extends StatelessWidget {
+  const _RecognitionSection({
+    required this.title,
+    required this.icon,
+    required this.isMultimodal,
+  });
+
+  final String title;
+  final IconData icon;
+  final bool isMultimodal;
+
+  @override
+  Widget build(BuildContext context) {
+    final ai = context.watch<AiProvider>();
+
+    // 当前激活的 Profile 和模型 ID
+    final activeProfile =
+        isMultimodal ? ai.activeMultimodalProfile : ai.activeTextProfile;
+    final activeModelId =
+        isMultimodal ? ai.activeMultimodalModelId : ai.activeTextModelId;
+
+    // 可用的 Profile 列表（有对应配置的）
+    final availableProfiles = ai.profiles.where((p) {
+      if (isMultimodal) {
+        return p.hasMultimodalModel &&
+            p.multimodalConfig!.vendor.supportsMultimodal;
+      }
+      return p.hasTextModel;
+    }).toList();
+
+    // 当前选中描述
+    final currentText = (activeProfile != null && activeModelId != null)
+        ? '${activeProfile.name} - $activeModelId'
+        : (availableProfiles.isEmpty ? '暂无可用配置' : '未选择');
+
+    return Card(
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        initiallyExpanded: false,
+        title: Row(
+          children: [
+            Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 8),
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+          ],
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(left: 28, top: 2),
+          child: Text(
+            currentText,
+            style: TextStyle(
+              fontSize: 13,
+              color: activeProfile != null
+                  ? Theme.of(context).colorScheme.onSurface.withAlpha(180)
+                  : Colors.red[300],
             ),
           ),
-          onDelete: ai.profiles.length <= 1
-              ? null
-              : () => _confirmDelete(context, ai, profile),
-        );
-      },
+        ),
+        children: availableProfiles.isEmpty
+            ? [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    isMultimodal
+                        ? '暂无支持图像识别的配置（需多模态厂商，如 Kimi）'
+                        : '暂无可用文字识别配置',
+                    style: const TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
+                ),
+              ]
+            : [
+                for (int i = 0; i < availableProfiles.length; i++) ...[
+                  _ProfileModelGroup(
+                    profile: availableProfiles[i],
+                    isMultimodal: isMultimodal,
+                    activeProfileId: activeProfile?.id,
+                    activeModelId: activeModelId,
+                  ),
+                  if (i < availableProfiles.length - 1) const Divider(height: 1),
+                ],
+              ],
+      ),
+    );
+  }
+}
+
+/// 单个 Profile 下的模型列表
+///
+/// 显示 Profile 名称作为子标题，下面列出该厂商所有可选模型。
+/// 文字识别列出所有模型，图像识别仅列出多模态模型。
+class _ProfileModelGroup extends StatelessWidget {
+  const _ProfileModelGroup({
+    required this.profile,
+    required this.isMultimodal,
+    required this.activeProfileId,
+    required this.activeModelId,
+  });
+
+  final AiProfile profile;
+  final bool isMultimodal;
+  final String? activeProfileId;
+  final String? activeModelId;
+
+  @override
+  Widget build(BuildContext context) {
+    final ai = context.read<AiProvider>();
+    final vendor = isMultimodal
+        ? profile.multimodalConfig!.vendor
+        : profile.textConfig!.vendor;
+
+    // 文字识别：列出该厂商所有模型（多模态模型也可用于文字）
+    // 图像识别：仅列出多模态模型
+    final models = isMultimodal
+        ? vendor.availableModels.where((m) => m.isMultimodal).toList()
+        : vendor.availableModels;
+
+    // 当前是否选中此 Profile + 模型
+    final isThisProfileActive = activeProfileId == profile.id;
+    final activeModel = isThisProfileActive ? activeModelId : null;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 4, 0, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Profile 名称
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Row(
+              children: [
+                Icon(Icons.account_tree_outlined,
+                    size: 16, color: Colors.grey[600]),
+                const SizedBox(width: 6),
+                Text(
+                  profile.name,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[700],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  vendor.label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey[500],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // 模型列表（自定义单选样式，避免 RadioListTile 弃用 API）
+          for (final model in models)
+            _ModelTile(
+              modelId: model.id,
+              description: model.description,
+              selected: isThisProfileActive && activeModel == model.id,
+              onTap: () {
+                if (isMultimodal) {
+                  ai.selectMultimodalModel(profile.id, model.id);
+                } else {
+                  ai.selectTextModel(profile.id, model.id);
+                }
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 单个模型选项（自定义单选样式）
+class _ModelTile extends StatelessWidget {
+  const _ModelTile({
+    required this.modelId,
+    required this.description,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String modelId;
+  final String? description;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            // 单选指示器
+            Icon(
+              selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+              size: 18,
+              color: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.grey,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    modelId,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                      color: selected
+                          ? Theme.of(context).colorScheme.primary
+                          : null,
+                    ),
+                  ),
+                  if (description != null)
+                    Text(
+                      description!,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 配置管理区域
+///
+/// 列出所有 Profile，支持编辑和删除。删除最后一个 Profile 不允许。
+class _ManagementSection extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final ai = context.watch<AiProvider>();
+    return Card(
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.tune, size: 20),
+                const SizedBox(width: 8),
+                const Text('配置管理',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const AiProfileEditScreen()),
+                  ),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('新建'),
+                ),
+              ],
+            ),
+            const Divider(),
+            for (final profile in ai.profiles)
+              _ProfileManageTile(profile: profile),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 配置管理中的单条 Profile
+class _ProfileManageTile extends StatelessWidget {
+  const _ProfileManageTile({required this.profile});
+
+  final AiProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final ai = context.watch<AiProvider>();
+    final canDelete = ai.profiles.length > 1;
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      leading: const Icon(Icons.account_circle_outlined),
+      title: Text(profile.name,
+          style: const TextStyle(fontWeight: FontWeight.w500)),
+      subtitle: Text(
+        [
+          if (profile.hasTextModel)
+            '文字：${profile.textConfig!.vendor.label} · ${profile.textConfig!.modelId}',
+          if (profile.hasMultimodalModel)
+            '图像：${profile.multimodalConfig!.vendor.label} · ${profile.multimodalConfig!.modelId}',
+          if (!profile.hasTextModel && !profile.hasMultimodalModel) '未配置模型',
+        ].join('\n'),
+        style: const TextStyle(fontSize: 12),
+      ),
+      isThreeLine: true,
+      trailing: PopupMenuButton<String>(
+        onSelected: (v) {
+          if (v == 'edit') {
+            Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => AiProfileEditScreen(profile: profile),
+            ));
+          } else if (v == 'delete') {
+            _confirmDelete(context, ai, profile);
+          }
+        },
+        itemBuilder: (_) => [
+          const PopupMenuItem(value: 'edit', child: Text('编辑')),
+          if (canDelete)
+            const PopupMenuItem(value: 'delete', child: Text('删除')),
+        ],
+      ),
     );
   }
 
@@ -91,19 +418,19 @@ class AiConfigScreen extends StatelessWidget {
     final ok = await showAnimatedDialog<bool>(
       context: context,
       barrierLabel: '删除配置',
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('删除配置'),
         content: Text('确认删除配置「${profile.name}」？'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('取消'),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.error,
             ),
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('删除'),
           ),
         ],
@@ -112,151 +439,5 @@ class AiConfigScreen extends StatelessWidget {
     if (ok == true) {
       await ai.removeProfile(profile.id);
     }
-  }
-}
-
-/// 单个配置卡片
-class _ProfileCard extends StatelessWidget {
-  const _ProfileCard({
-    required this.profile,
-    required this.isActive,
-    required this.onActivate,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
-  final AiProfile profile;
-  final bool isActive;
-  final VoidCallback? onActivate;
-  final VoidCallback onEdit;
-  final VoidCallback? onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: isActive
-            ? BorderSide(color: Theme.of(context).colorScheme.primary, width: 2)
-            : BorderSide.none,
-      ),
-      child: Column(
-        children: [
-          ListTile(
-            contentPadding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
-            leading: Icon(
-              isActive ? Icons.check_circle : Icons.circle_outlined,
-              color: isActive
-                  ? Theme.of(context).colorScheme.primary
-                  : Colors.grey,
-            ),
-            title: Row(
-              children: [
-                Text(profile.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(width: 8),
-                if (isActive)
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      '使用中',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            subtitle: Text(
-              profile.hasTextModel
-                  ? profile.textConfig!.vendor.label
-                  : '未配置',
-            ),
-            trailing: PopupMenuButton<String>(
-              onSelected: (v) {
-                if (v == 'edit') onEdit();
-                if (v == 'delete') onDelete?.call();
-              },
-              itemBuilder: (_) => [
-                const PopupMenuItem(value: 'edit', child: Text('编辑')),
-                if (onDelete != null)
-                  const PopupMenuItem(value: 'delete', child: Text('删除')),
-              ],
-            ),
-          ),
-          // 模型信息
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _modelRow(
-                  context,
-                  Icons.text_fields,
-                  '文本识别',
-                  profile.textConfig != null
-                      ? '${profile.textConfig!.vendor.label} · ${profile.textConfig!.modelId}'
-                      : '未配置',
-                  profile.hasTextModel,
-                ),
-                const SizedBox(height: 4),
-                _modelRow(
-                  context,
-                  Icons.image,
-                  '多模态识别',
-                  profile.multimodalConfig != null
-                      ? '${profile.multimodalConfig!.vendor.label} · ${profile.multimodalConfig!.modelId}'
-                      : '未配置',
-                  profile.hasMultimodalModel,
-                ),
-              ],
-            ),
-          ),
-          // 激活按钮
-          if (!isActive)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton.tonal(
-                  onPressed: onActivate,
-                  child: const Text('切换为此配置'),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _modelRow(
-    BuildContext context,
-    IconData icon,
-    String label,
-    String value,
-    bool configured,
-  ) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: Colors.grey),
-        const SizedBox(width: 6),
-        Text('$label：', style: const TextStyle(fontSize: 13, color: Colors.grey)),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 13,
-            color: configured ? null : Colors.red[300],
-            fontWeight: configured ? FontWeight.w500 : null,
-          ),
-        ),
-      ],
-    );
   }
 }

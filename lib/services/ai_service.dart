@@ -34,17 +34,41 @@ class AiModel {
   bool get isMultimodal => type == AiModelType.multimodal;
 }
 
+/// API 请求格式
+enum AiApiFormat {
+  /// OpenAI 兼容格式（Kimi/DeepSeek/Qwen/Zhipu/OpenAI/Gemini）
+  openai,
+  /// Anthropic 原生格式（Claude）
+  anthropic,
+}
+
 /// AI 模型厂商
 enum AiVendor {
   kimi,
-  deepseek;
+  deepseek,
+  qwen, // 千问（阿里通义千问）
+  zhipu, // 质谱（智谱 GLM）
+  openai, // OpenAI（ChatGPT）
+  google, // 谷歌 Gemini
+  anthropic; // Anthropic（Claude）
 
+  /// 厂商显示名称
   String get label {
     switch (this) {
       case AiVendor.kimi:
-        return 'Kimi (Moonshot AI)';
+        return 'Kimi (月之暗面)';
       case AiVendor.deepseek:
-        return 'DeepSeek';
+        return 'DeepSeek (深度求索)';
+      case AiVendor.qwen:
+        return '通义千问 (阿里)';
+      case AiVendor.zhipu:
+        return '智谱 GLM';
+      case AiVendor.openai:
+        return 'OpenAI (ChatGPT)';
+      case AiVendor.google:
+        return 'Google Gemini';
+      case AiVendor.anthropic:
+        return 'Anthropic (Claude)';
     }
   }
 
@@ -55,13 +79,33 @@ enum AiVendor {
         return 'https://api.moonshot.cn/v1';
       case AiVendor.deepseek:
         return 'https://api.deepseek.com';
+      case AiVendor.qwen:
+        // 通义千问 OpenAI 兼容模式
+        return 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+      case AiVendor.zhipu:
+        // 智谱 GLM OpenAI 兼容接口
+        return 'https://open.bigmodel.cn/api/paas/v4';
+      case AiVendor.openai:
+        return 'https://api.openai.com/v1';
+      case AiVendor.google:
+        // Gemini OpenAI 兼容端点
+        return 'https://generativelanguage.googleapis.com/v1beta/openai';
+      case AiVendor.anthropic:
+        return 'https://api.anthropic.com/v1';
+    }
+  }
+
+  /// 该厂商使用的 API 请求格式
+  AiApiFormat get apiFormat {
+    switch (this) {
+      case AiVendor.anthropic:
+        return AiApiFormat.anthropic;
+      default:
+        return AiApiFormat.openai;
     }
   }
 
   /// 该厂商可用的模型列表（含类型信息）
-  /// 参考：
-  /// - Kimi: https://platform.moonshot.cn/docs/introduction
-  /// - DeepSeek: https://api-docs.deepseek.com/api/create-chat-completion
   List<AiModel> get availableModels {
     switch (this) {
       case AiVendor.kimi:
@@ -77,6 +121,38 @@ enum AiVendor {
           AiModel(id: 'deepseek-v4-pro', type: AiModelType.text, description: '思考'),
           AiModel(id: 'deepseek-v4-flash', type: AiModelType.text, description: '快捷'),
         ];
+      case AiVendor.qwen:
+        return const [
+          AiModel(id: 'qwen-max', type: AiModelType.text, description: '最强'),
+          AiModel(id: 'qwen-plus', type: AiModelType.text, description: '均衡'),
+          AiModel(id: 'qwen-turbo', type: AiModelType.text, description: '快捷'),
+          AiModel(id: 'qwen-vl-max', type: AiModelType.multimodal, description: '多模态最强'),
+          AiModel(id: 'qwen-vl-plus', type: AiModelType.multimodal, description: '多模态'),
+        ];
+      case AiVendor.zhipu:
+        return const [
+          AiModel(id: 'glm-4', type: AiModelType.text, description: '旗舰'),
+          AiModel(id: 'glm-4-flash', type: AiModelType.text, description: '快捷'),
+          AiModel(id: 'glm-4v', type: AiModelType.multimodal, description: '多模态'),
+        ];
+      case AiVendor.openai:
+        return const [
+          AiModel(id: 'gpt-4o', type: AiModelType.multimodal, description: '旗舰多模态'),
+          AiModel(id: 'gpt-4o-mini', type: AiModelType.multimodal, description: '轻量多模态'),
+          AiModel(id: 'gpt-4-turbo', type: AiModelType.multimodal, description: '增强'),
+        ];
+      case AiVendor.google:
+        return const [
+          AiModel(id: 'gemini-2.0-flash', type: AiModelType.multimodal, description: '最新多模态'),
+          AiModel(id: 'gemini-1.5-pro', type: AiModelType.multimodal, description: 'Pro 多模态'),
+          AiModel(id: 'gemini-1.5-flash', type: AiModelType.multimodal, description: '轻量多模态'),
+        ];
+      case AiVendor.anthropic:
+        return const [
+          AiModel(id: 'claude-3-5-sonnet-20241022', type: AiModelType.multimodal, description: '旗舰多模态'),
+          AiModel(id: 'claude-3-5-haiku-20241022', type: AiModelType.multimodal, description: '轻量多模态'),
+          AiModel(id: 'claude-3-opus-20240229', type: AiModelType.multimodal, description: 'Opus 多模态'),
+        ];
     }
   }
 
@@ -89,7 +165,6 @@ enum AiVendor {
       availableModels.map((m) => m.id).toList();
 
   /// 该厂商是否支持多模态（图片输入）
-  /// DeepSeek 仅支持自然语言处理
   bool get supportsMultimodal => multimodalModelIds.isNotEmpty;
 
   /// 根据 ID 查找模型
@@ -98,6 +173,26 @@ enum AiVendor {
       if (m.id == id) return m;
     }
     return null;
+  }
+
+  /// 厂商创建 API Key 的帮助链接
+  String get helpUrl {
+    switch (this) {
+      case AiVendor.kimi:
+        return 'https://platform.moonshot.cn';
+      case AiVendor.deepseek:
+        return 'https://platform.deepseek.com';
+      case AiVendor.qwen:
+        return 'https://dashscope.console.aliyun.com';
+      case AiVendor.zhipu:
+        return 'https://open.bigmodel.cn';
+      case AiVendor.openai:
+        return 'https://platform.openai.com';
+      case AiVendor.google:
+        return 'https://aistudio.google.com';
+      case AiVendor.anthropic:
+        return 'https://console.anthropic.com';
+    }
   }
 }
 
@@ -225,9 +320,14 @@ class AiRecognitionResult {
 /// AI 服务
 ///
 /// 管理多个 AI 配置（Profile），调用大模型 API 进行记账识别。
+/// 支持为文字识别和图像识别分别选择 Profile 和具体模型 ID。
 class AiService {
   static const _kProfiles = 'ai_profiles';
-  static const _kActiveProfileId = 'ai_active_profile_id';
+  static const _kActiveTextProfileId = 'ai_active_text_profile_id';
+  static const _kActiveMultimodalProfileId = 'ai_active_multimodal_profile_id';
+  // 用户可在同一 Profile 下切换具体模型 ID（覆盖 profile.textConfig/multimodalConfig.modelId）
+  static const _kActiveTextModelId = 'ai_active_text_model_id';
+  static const _kActiveMultimodalModelId = 'ai_active_multimodal_model_id';
 
   SharedPreferences? _prefs;
 
@@ -280,34 +380,136 @@ class AiService {
     final profiles = List<AiProfile>.from(await getProfiles());
     profiles.removeWhere((p) => p.id == id);
     await _saveProfiles(profiles);
-    // 如果删除的是当前激活的，清除激活状态
-    final activeId = await getActiveProfileId();
-    if (activeId == id) {
-      await setActiveProfileId(profiles.isEmpty ? null : profiles.first.id);
+    // 如果删除的是当前激活的，清除激活状态（并切到第一个可用配置）
+    final activeTextId = await getActiveTextProfileId();
+    if (activeTextId == id) {
+      final newId = profiles.isEmpty ? null : profiles.first.id;
+      await setActiveTextProfileId(newId);
+      // 切换 Profile 时清除模型 ID 覆盖，让调用方回退到 Profile 默认模型
+      await setActiveTextModelId(null);
+    }
+    final activeMmId = await getActiveMultimodalProfileId();
+    if (activeMmId == id) {
+      final newId = profiles.isEmpty ? null : profiles.first.id;
+      await setActiveMultimodalProfileId(newId);
+      await setActiveMultimodalModelId(null);
     }
   }
 
-  /// 获取当前激活的配置 ID
-  Future<String?> getActiveProfileId() async {
+  /// 获取文字识别激活的配置 ID
+  Future<String?> getActiveTextProfileId() async {
     final prefs = await _getPrefs();
-    return prefs.getString(_kActiveProfileId);
+    return prefs.getString(_kActiveTextProfileId);
   }
 
-  Future<void> setActiveProfileId(String? id) async {
+  Future<void> setActiveTextProfileId(String? id) async {
     final prefs = await _getPrefs();
     if (id == null) {
-      await prefs.remove(_kActiveProfileId);
+      await prefs.remove(_kActiveTextProfileId);
     } else {
-      await prefs.setString(_kActiveProfileId, id);
+      await prefs.setString(_kActiveTextProfileId, id);
     }
   }
 
-  /// 获取当前激活的配置
-  Future<AiProfile?> getActiveProfile() async {
-    final id = await getActiveProfileId();
+  /// 获取图像识别激活的配置 ID
+  Future<String?> getActiveMultimodalProfileId() async {
+    final prefs = await _getPrefs();
+    return prefs.getString(_kActiveMultimodalProfileId);
+  }
+
+  Future<void> setActiveMultimodalProfileId(String? id) async {
+    final prefs = await _getPrefs();
+    if (id == null) {
+      await prefs.remove(_kActiveMultimodalProfileId);
+    } else {
+      await prefs.setString(_kActiveMultimodalProfileId, id);
+    }
+  }
+
+  /// 获取文字识别激活的配置
+  Future<AiProfile?> getActiveTextProfile() async {
+    final id = await getActiveTextProfileId();
     if (id == null) return null;
     final profiles = await getProfiles();
-    return profiles.firstWhere((p) => p.id == id, orElse: () => profiles.first);
+    if (profiles.isEmpty) return null;
+    return profiles.firstWhere((p) => p.id == id,
+        orElse: () => profiles.first);
+  }
+
+  /// 获取图像识别激活的配置
+  Future<AiProfile?> getActiveMultimodalProfile() async {
+    final id = await getActiveMultimodalProfileId();
+    if (id == null) return null;
+    final profiles = await getProfiles();
+    if (profiles.isEmpty) return null;
+    return profiles.firstWhere((p) => p.id == id,
+        orElse: () => profiles.first);
+  }
+
+  /// 获取文字识别当前选中的模型 ID（覆盖 Profile 默认）
+  /// 若未设置，返回 null，调用方应回退到 Profile.textConfig.modelId
+  Future<String?> getActiveTextModelId() async {
+    final prefs = await _getPrefs();
+    return prefs.getString(_kActiveTextModelId);
+  }
+
+  Future<void> setActiveTextModelId(String? id) async {
+    final prefs = await _getPrefs();
+    if (id == null || id.isEmpty) {
+      await prefs.remove(_kActiveTextModelId);
+    } else {
+      await prefs.setString(_kActiveTextModelId, id);
+    }
+  }
+
+  /// 获取图像识别当前选中的模型 ID（覆盖 Profile 默认）
+  Future<String?> getActiveMultimodalModelId() async {
+    final prefs = await _getPrefs();
+    return prefs.getString(_kActiveMultimodalModelId);
+  }
+
+  Future<void> setActiveMultimodalModelId(String? id) async {
+    final prefs = await _getPrefs();
+    if (id == null || id.isEmpty) {
+      await prefs.remove(_kActiveMultimodalModelId);
+    } else {
+      await prefs.setString(_kActiveMultimodalModelId, id);
+    }
+  }
+
+  /// 构建 HTTP 请求头
+  Map<String, String> _buildHeaders(AiVendor vendor, String apiKey) {
+    if (vendor.apiFormat == AiApiFormat.anthropic) {
+      return {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      };
+    }
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $apiKey',
+    };
+  }
+
+  /// 构建 API 端点 URL
+  String _buildEndpoint(AiVendor vendor) {
+    if (vendor.apiFormat == AiApiFormat.anthropic) {
+      return '${vendor.baseUrl}/messages';
+    }
+    return '${vendor.baseUrl}/chat/completions';
+  }
+
+  /// 从响应中提取文本内容
+  String _extractContent(AiVendor vendor, Map<String, dynamic> data) {
+    if (vendor.apiFormat == AiApiFormat.anthropic) {
+      // Anthropic: {content: [{type: 'text', text: '...'}]}
+      final content = data['content'] as List;
+      return content.first['text'] as String;
+    }
+    // OpenAI: {choices: [{message: {content: '...'}}]}
+    final choices = data['choices'] as List;
+    return choices.first['message']['content'] as String;
   }
 
   /// 验证 API Key 是否有效
@@ -325,19 +527,7 @@ class AiService {
       throw const AiException('API Key 不能为空\n\n解决方法：请输入有效的 API Key');
     }
 
-    // 基本格式校验：常见厂商 Key 前缀
-    if (vendor == AiVendor.deepseek && !trimmedKey.startsWith('sk-')) {
-      throw const AiException(
-          'API Key 格式可能不正确（DeepSeek 的 Key 通常以 sk- 开头）\n\n'
-          '解决方法：请前往 https://platform.deepseek.com 创建 API Key');
-    }
-    if (vendor == AiVendor.kimi && !trimmedKey.startsWith('sk-')) {
-      throw const AiException(
-          'API Key 格式可能不正确（Kimi 的 Key 通常以 sk- 开头）\n\n'
-          '解决方法：请前往 https://platform.moonshot.cn 创建 API Key');
-    }
-
-    final url = '${vendor.baseUrl}/chat/completions';
+    final url = _buildEndpoint(vendor);
     final body = <String, dynamic>{
       'model': modelId,
       'messages': [
@@ -345,15 +535,11 @@ class AiService {
       ],
       'max_tokens': 5,
     };
-    // DeepSeek 支持 JSON Output，但验证请求无需启用
     final http.Response response;
     try {
       response = await http.post(
         Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $trimmedKey',
-        },
+        headers: _buildHeaders(vendor, trimmedKey),
         body: jsonEncode(body),
       ).timeout(_kRequestTimeout);
     } on TimeoutException {
@@ -405,7 +591,7 @@ class AiService {
           '· 确认未触发 RPM 限制');
     }
     if (response.statusCode != 200) {
-      // 提取错误消息
+      // 提取错误消息（兼容 OpenAI 和 Anthropic 错误格式）
       String detail = response.body;
       try {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -426,16 +612,17 @@ class AiService {
   }
 
   /// 调用 AI 识别记账信息（纯文本）
-  /// 使用 profile 的 textConfig
+  /// [config] 由调用方构造（vendor + apiKey + modelId），
+  /// 这样可在同一 Profile 下切换不同模型 ID。
+  /// 自动兼容 OpenAI 和 Anthropic 两种 API 格式。
   /// 解析失败时自动重试，最多 3 次
   Future<AiRecognitionResult> recognizeFromText({
-    required AiProfile profile,
+    required AiModelConfig config,
     required String text,
     required List<String> expenseCategories,
     required List<String> incomeCategories,
   }) async {
-    final config = profile.textConfig;
-    if (config == null || config.apiKey.isEmpty) {
+    if (config.apiKey.isEmpty) {
       throw const AiException('未配置文本识别');
     }
     if (config.modelId.isEmpty) {
@@ -443,8 +630,8 @@ class AiService {
     }
 
     final prompt = _buildPrompt(expenseCategories, incomeCategories);
-    final url = '${config.vendor.baseUrl}/chat/completions';
-
+    final url = _buildEndpoint(config.vendor);
+    final isAnthropic = config.vendor.apiFormat == AiApiFormat.anthropic;
     // DeepSeek 支持 response_format JSON Output
     final useJsonMode = config.vendor == AiVendor.deepseek;
 
@@ -452,12 +639,23 @@ class AiService {
     for (var attempt = 1; attempt <= 3; attempt++) {
       final body = <String, dynamic>{
         'model': config.modelId,
-        'messages': [
+        'max_tokens': 1024,
+        // 不传 temperature，让 API 用默认值（某些思考模型只允许 1）
+      };
+
+      if (isAnthropic) {
+        // Anthropic: system 作为顶层字段，messages 仅含 user
+        body['system'] = prompt;
+        body['messages'] = [
+          {'role': 'user', 'content': text},
+        ];
+      } else {
+        // OpenAI 格式: system 作为 message
+        body['messages'] = [
           {'role': 'system', 'content': prompt},
           {'role': 'user', 'content': text},
-        ],
-        'temperature': 0.1,
-      };
+        ];
+      }
       if (useJsonMode) {
         body['response_format'] = {'type': 'json_object'};
       }
@@ -466,10 +664,7 @@ class AiService {
       try {
         response = await http.post(
           Uri.parse(url),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ${config.apiKey}',
-          },
+          headers: _buildHeaders(config.vendor, config.apiKey),
           body: jsonEncode(body),
         ).timeout(_kRequestTimeout);
       } on TimeoutException {
@@ -486,8 +681,7 @@ class AiService {
       }
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final content =
-          (data['choices'] as List).first['message']['content'] as String;
+      final content = _extractContent(config.vendor, data);
       try {
         return _parseResult(
           content,
@@ -507,17 +701,18 @@ class AiService {
   }
 
   /// 调用 AI 识别记账信息（图片 + 文本）
-  /// 使用 profile 的 multimodalConfig
+  /// [config] 由调用方构造（vendor + apiKey + modelId），
+  /// 这样可在同一 Profile 下切换不同多模态模型 ID。
+  /// 自动兼容 OpenAI 和 Anthropic 两种 API 格式。
   /// 解析失败时自动重试，最多 3 次
   Future<AiRecognitionResult> recognizeFromImage({
-    required AiProfile profile,
+    required AiModelConfig config,
     required String base64Image,
     String? textHint,
     required List<String> expenseCategories,
     required List<String> incomeCategories,
   }) async {
-    final config = profile.multimodalConfig;
-    if (config == null || config.apiKey.isEmpty) {
+    if (config.apiKey.isEmpty) {
       throw const AiException('未配置多模态识别');
     }
     if (config.modelId.isEmpty) {
@@ -528,36 +723,60 @@ class AiService {
     }
 
     final prompt = _buildPrompt(expenseCategories, incomeCategories);
-    final url = '${config.vendor.baseUrl}/chat/completions';
+    final url = _buildEndpoint(config.vendor);
+    final isAnthropic = config.vendor.apiFormat == AiApiFormat.anthropic;
 
     // 最多重试 3 次
     for (var attempt = 1; attempt <= 3; attempt++) {
+      final Map<String, dynamic> body;
+      if (isAnthropic) {
+        // Anthropic: system 顶层字段，图片用 source 结构
+        final content = <Map<String, dynamic>>[
+          {
+            'type': 'image',
+            'source': {
+              'type': 'base64',
+              'media_type': 'image/jpeg',
+              'data': base64Image,
+            },
+          },
+          if (textHint != null && textHint.isNotEmpty)
+            {'type': 'text', 'text': textHint},
+        ];
+        body = {
+          'model': config.modelId,
+          'max_tokens': 1024,
+          'system': prompt,
+          'messages': [
+            {'role': 'user', 'content': content},
+          ],
+        };
+      } else {
+        // OpenAI 格式: prompt 作为 text 内容块，图片用 image_url
+        final content = <Map<String, dynamic>>[
+          {'type': 'text', 'text': prompt},
+          {
+            'type': 'image_url',
+            'image_url': {'url': 'data:image/jpeg;base64,$base64Image'},
+          },
+          if (textHint != null && textHint.isNotEmpty)
+            {'type': 'text', 'text': textHint},
+        ];
+        body = {
+          'model': config.modelId,
+          'max_tokens': 1024,
+          'messages': [
+            {'role': 'user', 'content': content},
+          ],
+        };
+      }
+
       final http.Response response;
       try {
         response = await http.post(
           Uri.parse(url),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ${config.apiKey}',
-          },
-          body: jsonEncode({
-            'model': config.modelId,
-            'messages': [
-              {
-                'role': 'user',
-                'content': [
-                  {'type': 'text', 'text': prompt},
-                  {
-                    'type': 'image_url',
-                    'image_url': {'url': 'data:image/jpeg;base64,$base64Image'},
-                  },
-                  if (textHint != null && textHint.isNotEmpty)
-                    {'type': 'text', 'text': textHint},
-                ],
-              },
-            ],
-            'temperature': 0.1,
-          }),
+          headers: _buildHeaders(config.vendor, config.apiKey),
+          body: jsonEncode(body),
         ).timeout(_kRequestTimeout);
       } on TimeoutException {
         // 超时直接抛出，不重试
@@ -573,8 +792,7 @@ class AiService {
       }
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final content =
-          (data['choices'] as List).first['message']['content'] as String;
+      final content = _extractContent(config.vendor, data);
       try {
         return _parseResult(
           content,

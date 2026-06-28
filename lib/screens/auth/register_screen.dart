@@ -39,7 +39,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _loading = false);
     if (ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('注册成功，已自动登录')),
+        const SnackBar(
+          content: Text('注册成功，已自动登录'),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       Navigator.of(context).pop();
     } else {

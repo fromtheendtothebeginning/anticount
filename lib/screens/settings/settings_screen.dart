@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../constants/app_info.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../widgets/animated_dialog.dart';
@@ -96,6 +97,18 @@ class SettingsScreen extends StatelessWidget {
               ),
             ],
           ),
+          _SectionTitle('AI 记账'),
+          _SettingsCard(
+            children: [
+              SwitchListTile(
+                secondary: const Icon(Icons.auto_awesome_outlined),
+                title: const Text('识别后自动记入账单'),
+                subtitle: const Text('开启后，AI 识别完成将自动保存为账单'),
+                value: settings.autoSaveAiBills,
+                onChanged: (v) => settings.setAutoSaveAiBills(v),
+              ),
+            ],
+          ),
           _SectionTitle('账户安全'),
           _SettingsCard(
             children: [
@@ -134,8 +147,8 @@ class SettingsScreen extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.info_outline),
                 title: const Text('版本'),
-                trailing: const Text('v1.0.0',
-                    style: TextStyle(color: Colors.grey)),
+                trailing: Text('v${AppInfo.version}',
+                    style: const TextStyle(color: Colors.grey)),
               ),
               const Divider(height: 1, indent: 16, endIndent: 16),
               ListTile(
@@ -144,8 +157,8 @@ class SettingsScreen extends StatelessWidget {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => showLicensePage(
                   context: context,
-                  applicationName: 'Anticount',
-                  applicationVersion: '1.0.0',
+                  applicationName: AppInfo.name,
+                  applicationVersion: AppInfo.version,
                 ),
               ),
             ],
@@ -180,18 +193,18 @@ class SettingsScreen extends StatelessWidget {
     final ok = await showAnimatedDialog<bool>(
       context: context,
       barrierLabel: '退出登录',
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('退出登录'),
         content: Text(retain
             ? '确认退出当前账号？\n你的记账数据将保留，下次登录可继续查看。'
             : '确认退出当前账号？\n根据你的设置，退出后本地记账数据将被清除。'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('退出'),
           ),
         ],

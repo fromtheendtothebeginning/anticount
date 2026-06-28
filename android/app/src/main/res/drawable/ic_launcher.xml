@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 应用图标（非自适应，固定圆角矩形形状） -->
+<!-- 直接使用 anticraft 网站图标设计：紫色圆角方形 + 白色 N + 青色对角斜线 -->
+<!-- 视口 108x108，圆角 rx=20（比例 12/64*108≈20） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 紫色圆角矩形背景 -->
+    <path
+        android:pathData="M20,0 L88,0 Q108,0 108,20 L108,88 Q108,108 88,108 L20,108 Q0,108 0,88 L0,20 Q0,0 20,0 Z"
+        android:fillColor="#6C5CE7"/>
+
+    <!-- 白色 N 字母（缩放自原始 64x64 SVG: M20,44 V20 h8 l8,16 V20 h8 v24 h-8 l-8,-16 v16 h-8 z） -->
+    <path
+        android:pathData="M36,72 V36 H48 L60,60 V36 H72 V72 H60 L48,48 V72 H36 Z"
+        android:fillColor="#FFFFFF"/>
+
+    <!-- 青色对角斜线（缩放自原始 64x64 SVG: M14,48 L50,16） -->
+    <path
+        android:pathData="M27,78 L81,30"
+        android:strokeColor="#00CEC9"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"/>
+
+</vector>

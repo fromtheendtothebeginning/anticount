@@ -124,4 +124,34 @@ class TransactionProvider extends ChangeNotifier {
       end: _end,
     );
   }
+
+  /// 按时间范围查询交易列表（不影响当前 filter 状态）
+  ///
+  /// 供账单页按月/周/日查询使用。
+  Future<List<Transaction>> queryByRange({
+    required int userId,
+    DateTime? start,
+    DateTime? end,
+    TransactionType? type,
+  }) {
+    return _service.query(
+      userId: userId,
+      start: start,
+      end: end,
+      type: type,
+    );
+  }
+
+  /// 按时间范围统计收支（不影响当前 filter 状态）
+  Future<({double income, double expense})> summaryByRange({
+    required int userId,
+    DateTime? start,
+    DateTime? end,
+  }) {
+    return _service.summary(
+      userId: userId,
+      start: start,
+      end: end,
+    );
+  }
 }

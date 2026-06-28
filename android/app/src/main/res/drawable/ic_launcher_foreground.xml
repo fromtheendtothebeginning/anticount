@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 应用图标前景：白色 N 字母 + 青色对角斜线（直接使用 anticraft 网站图标设计） -->
+<!-- 原始 SVG viewBox 64x64，缩放至 108x108（×1.5 + 偏移 6） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 白色 N 字母（填充路径） -->
+    <!-- 原始路径: M20,44 V20 h8 l8,16 V20 h8 v24 h-8 l-8,-16 v16 h-8 z -->
+    <!-- 缩放后(×1.5+6): M36,72 V36 H48 L60,60 V36 H72 V72 H60 L48,48 V72 H36 Z -->
+    <path
+        android:pathData="M36,72 V36 H48 L60,60 V36 H72 V72 H60 L48,48 V72 H36 Z"
+        android:fillColor="#FFFFFF"/>
+
+    <!-- 青色对角斜线（从左下到右上） -->
+    <!-- 原始: M14,48 L50,16 -->
+    <!-- 缩放后(×1.5+6): M27,78 L81,30 -->
+    <path
+        android:pathData="M27,78 L81,30"
+        android:strokeColor="#00CEC9"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"/>
+
+</vector>

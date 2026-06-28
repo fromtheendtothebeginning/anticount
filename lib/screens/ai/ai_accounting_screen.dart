@@ -11,13 +11,15 @@ import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/transaction_provider.dart';
 import '../../services/ai_service.dart';
+import '../../widgets/animated_dialog.dart';
 import 'ai_config_screen.dart';
 import 'ai_error_dialog.dart';
 
 /// AI 记账界面
 ///
-/// 用户可输入文字、选择图片，由 AI 自动识别金额和分类，
-/// 确认后保存到数据库。无可用配置时隐藏提交按钮并提示配置。
+/// 用户可输入文字、选择多张图片（账单/小票），由 AI 自动识别金额和分类。
+/// 支持一次生成多条账单，并可在设置中开启"自动记入账单"。
+/// 无可用配置时隐藏提交按钮并提示配置。
 class AiAccountingScreen extends StatefulWidget {
   const AiAccountingScreen({super.key});
 
@@ -27,11 +29,13 @@ class AiAccountingScreen extends StatefulWidget {
 
 class _AiAccountingScreenState extends State<AiAccountingScreen> {
   final _textCtrl = TextEditingController();
-  File? _selectedImage;
-  String? _base64Image;
+  // 多张图片：原始文件 + base64 编码
+  final List<File> _selectedImages = [];
+  final List<String> _base64Images = [];
   bool _recognizing = false;
   bool _saving = false;
-  AiRecognitionResult? _result;
+  // 多条识别结果
+  List<AiRecognitionResult> _results = const [];
 
   @override
   void dispose() {
@@ -49,37 +53,50 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
     );
   }
 
-  /// 选择图片
-  Future<void> _pickImage() async {
+  /// 选择多张图片
+  Future<void> _pickImages() async {
     final picker = ImagePicker();
-    final picked = await picker.pickImage(
-      source: ImageSource.gallery,
+    // 使用 pickMultiImage 支持多选
+    final picked = await picker.pickMultiImage(
       maxWidth: 1024,
       maxHeight: 1024,
       imageQuality: 80,
     );
-    if (picked == null) return;
-    final file = File(picked.path);
-    final bytes = await file.readAsBytes();
+    if (picked.isEmpty) return;
+    final newFiles = <File>[];
+    final newBase64 = <String>[];
+    for (final xFile in picked) {
+      final file = File(xFile.path);
+      final bytes = await file.readAsBytes();
+      newFiles.add(file);
+      newBase64.add(base64Encode(bytes));
+    }
     setState(() {
-      _selectedImage = file;
-      _base64Image = base64Encode(bytes);
+      _selectedImages.addAll(newFiles);
+      _base64Images.addAll(newBase64);
+    });
+  }
+
+  /// 删除指定索引的图片
+  void _removeImage(int index) {
+    setState(() {
+      _selectedImages.removeAt(index);
+      _base64Images.removeAt(index);
     });
   }
 
   /// 调用 AI 识别
   ///
   /// 根据识别类型自动选择模型：
-  /// - 有图片 → 多模态模型（recognizeFromImage，用 multimodalModelId）
-  /// - 无图片 → 自然语言模型（recognizeFromText，用 textModelId）
+  /// - 有图片 → 多模态模型（recognizeFromImage），对每张图片分别识别
+  /// - 无图片 → 自然语言模型（recognizeFromText）
   ///
-  /// 如果用户想在文字识别时使用多模态模型，可在配置界面将"自然语言模型"
-  /// 选为多模态模型（自然语言模型可选所有模型）。
+  /// 多张图片会生成多条识别结果，可在设置中开启自动保存。
   Future<void> _recognize() async {
     final ai = context.read<AiProvider>();
     final settings = context.read<SettingsProvider>();
 
-    final hasImage = _base64Image != null;
+    final hasImage = _base64Images.isNotEmpty;
     final hasText = _textCtrl.text.trim().isNotEmpty;
 
     if (!hasImage && !hasText) {
@@ -110,28 +127,44 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
 
     setState(() {
       _recognizing = true;
-      _result = null;
+      _results = const [];
     });
 
     try {
       final expenseCats = settings.expenseCategories;
       final incomeCats = settings.incomeCategories;
+      final textHint = hasText ? _textCtrl.text.trim() : null;
 
-      final result = useImage
-          ? await ai.recognizeFromImage(
-              base64Image: _base64Image!,
-              textHint: hasText ? _textCtrl.text.trim() : null,
-              expenseCategories: expenseCats,
-              incomeCategories: incomeCats,
-            )
-          : await ai.recognizeFromText(
-              text: _textCtrl.text.trim(),
-              expenseCategories: expenseCats,
-              incomeCategories: incomeCats,
-            );
+      final List<AiRecognitionResult> results = [];
+
+      if (useImage) {
+        // 图片识别：对每张图片分别调用，收集多个结果
+        for (var i = 0; i < _base64Images.length; i++) {
+          final result = await ai.recognizeFromImage(
+            base64Image: _base64Images[i],
+            textHint: textHint,
+            expenseCategories: expenseCats,
+            incomeCategories: incomeCats,
+          );
+          results.add(result);
+        }
+      } else {
+        // 纯文字识别
+        final result = await ai.recognizeFromText(
+          text: _textCtrl.text.trim(),
+          expenseCategories: expenseCats,
+          incomeCategories: incomeCats,
+        );
+        results.add(result);
+      }
 
       if (!mounted) return;
-      setState(() => _result = result);
+      setState(() => _results = results);
+
+      // 自动保存：如果设置中开启，弹出确认对话框让用户确认后再保存
+      if (settings.autoSaveAiBills && results.isNotEmpty) {
+        await _showAutoSaveConfirmDialog();
+      }
     } catch (e) {
       if (!mounted) return;
       // API 调用或识别错误统一弹窗显示
@@ -145,54 +178,209 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
     }
   }
 
-  /// 确认保存
-  Future<void> _confirmSave() async {
-    final result = _result;
-    if (result == null) return;
+  /// 自动保存确认对话框
+  ///
+  /// 自动记账模式下，识别完成后弹出此对话框展示识别结果，
+  /// 并检测是否有重复账单，用户确认后才保存。
+  Future<void> _showAutoSaveConfirmDialog() async {
+    final duplicates = await _findDuplicates(_results);
+    if (!mounted) return;
+
+    final confirmed = await showAnimatedDialog<bool>(
+      context: context,
+      barrierLabel: '确认保存',
+      builder: (dialogContext) => _AutoSaveConfirmDialog(
+        results: _results,
+        duplicates: duplicates,
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      await _saveAllResults(autoMode: true);
+    }
+  }
+
+  /// 检测识别结果中是否有与已有账单重复的
+  ///
+  /// 判断条件：同一用户、同一天、相同金额、相同类型、相同分类
+  /// 返回每个识别结果对应的重复交易列表（索引与 _results 对应）。
+  Future<List<List<Transaction>>> _findDuplicates(
+      List<AiRecognitionResult> results) async {
+    final user = context.read<AuthProvider>().user;
+    if (user == null) return List.generate(results.length, (_) => []);
+
+    final provider = context.read<TransactionProvider>();
+    final now = DateTime.now();
+    // 查询最近 7 天的交易用于比对
+    final recent = await provider.queryByRange(
+      userId: user.id,
+      start: now.subtract(const Duration(days: 7)),
+      end: now,
+    );
+
+    // 为每个识别结果查找重复
+    final duplicates = <List<Transaction>>[];
+    for (final result in results) {
+      final type = result.type == 'income'
+          ? TransactionType.income
+          : TransactionType.expense;
+      // 重复判断：同一天、相同金额、相同类型、相同分类
+      final matches = recent.where((tx) {
+        return tx.amount == result.amount &&
+            tx.type == type &&
+            tx.category == result.category &&
+            _isSameDay(tx.date, now);
+      }).toList();
+      duplicates.add(matches);
+    }
+    return duplicates;
+  }
+
+  /// 判断两个日期是否为同一天
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  /// 手动保存时检测重复并提示
+  ///
+  /// 返回 true 表示用户确认保存（或无重复），false 表示取消。
+  Future<bool> _checkDuplicatesBeforeManualSave() async {
+    final duplicates = await _findDuplicates(_results);
+    // 如果没有重复，直接返回 true
+    final hasAnyDuplicate = duplicates.any((list) => list.isNotEmpty);
+    if (!hasAnyDuplicate) return true;
+
+    if (!mounted) return false;
+    // 有重复，弹出确认对话框
+    final confirmed = await showAnimatedDialog<bool>(
+      context: context,
+      barrierLabel: '重复账单确认',
+      builder: (dialogContext) => _AutoSaveConfirmDialog(
+        results: _results,
+        duplicates: duplicates,
+        isManualSave: true,
+      ),
+    );
+    return confirmed == true;
+  }
+
+  /// 保存所有识别结果到数据库
+  ///
+  /// [autoMode] 为 true 时表示由"自动保存"触发，不弹错误对话框；
+  /// 为 false 时表示用户手动点击"确认保存"。
+  Future<void> _saveAllResults({bool autoMode = false}) async {
+    final results = _results;
+    if (results.isEmpty) return;
     final user = context.read<AuthProvider>().user;
     if (user == null) return;
 
     setState(() => _saving = true);
     final provider = context.read<TransactionProvider>();
-    final ok = await provider.add(Transaction(
-      userId: user.id,
-      amount: result.amount,
-      type: result.type == 'income'
-          ? TransactionType.income
-          : TransactionType.expense,
-      category: result.category,
-      date: DateTime.now(),
-      note: result.note,
-    ));
+    final now = DateTime.now();
+
+    int successCount = 0;
+    String? lastError;
+    for (final result in results) {
+      final ok = await provider.add(Transaction(
+        userId: user.id,
+        amount: result.amount,
+        type: result.type == 'income'
+            ? TransactionType.income
+            : TransactionType.expense,
+        category: result.category,
+        date: now,
+        note: result.note,
+      ));
+      if (ok) {
+        successCount++;
+      } else {
+        lastError = provider.error;
+      }
+    }
+
     if (!mounted) return;
     setState(() => _saving = false);
-    if (ok) {
+
+    if (successCount == results.length) {
+      // 全部保存成功
       _textCtrl.clear();
       setState(() {
-        _selectedImage = null;
-        _base64Image = null;
-        _result = null;
+        _selectedImages.clear();
+        _base64Images.clear();
+        _results = const [];
       });
-      _showTip('已保存');
+      _showTip(autoMode
+          ? '已自动保存 $successCount 条账单'
+          : '已保存 $successCount 条账单');
+    } else if (successCount > 0) {
+      // 部分成功
+      _showTip('已保存 $successCount/${results.length} 条，部分失败');
+      if (!autoMode && lastError != null) {
+        await showAiErrorDialog(
+          context: context,
+          title: '部分保存失败',
+          error: lastError,
+        );
+      }
+      setState(() {
+        _results = const [];
+        _selectedImages.clear();
+        _base64Images.clear();
+      });
     } else {
-      // 保存失败用错误对话框显示
-      await showAiErrorDialog(
-        context: context,
-        title: '保存失败',
-        error: provider.error ?? '保存失败，请重试',
-      );
+      // 全部失败
+      if (!autoMode) {
+        await showAiErrorDialog(
+          context: context,
+          title: '保存失败',
+          error: lastError ?? '保存失败，请重试',
+        );
+      } else {
+        _showTip('自动保存失败');
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final ai = context.watch<AiProvider>();
+    final settings = context.watch<SettingsProvider>();
     final hasProfile = ai.hasAvailableProfile;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('AI 记账'),
         actions: [
+          // 自动保存状态标识
+          if (settings.autoSaveAiBills)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.bolt,
+                          size: 14,
+                          color: Theme.of(context).colorScheme.onPrimaryContainer),
+                      const SizedBox(width: 4),
+                      Text(
+                        '自动记账',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Theme.of(context).colorScheme.onPrimaryContainer,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'AI 配置',
@@ -248,6 +436,18 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
   Widget _buildContent(BuildContext context, AiProvider ai) {
     final showImagePicker = ai.supportsMultimodal;
     final activeProfile = ai.activeProfile;
+    // 在 build 方法中用 watch 建立依赖，确保设置变化时 UI 更新
+    final autoSave = context.watch<SettingsProvider>().autoSaveAiBills;
+    // 文字识别实际生效的模型
+    final textModelId = ai.effectiveTextConfig?.modelId;
+    // 图像识别实际生效的模型
+    final multimodalModelId = ai.effectiveMultimodalConfig?.modelId;
+    // 当前是否处于图片识别模式
+    final useImageMode = _selectedImages.isNotEmpty && ai.supportsMultimodal;
+    // 当前展示的配置名（依据识别模式）
+    final displayName = useImageMode
+        ? (ai.activeMultimodalProfile?.name ?? '')
+        : (activeProfile?.name ?? '');
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: Column(
@@ -268,7 +468,7 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            activeProfile.name,
+                            displayName,
                             style: const TextStyle(fontSize: 13),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -287,22 +487,24 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
                     Row(
                       children: [
                         Icon(
-                          _selectedImage != null
+                          useImageMode
                               ? Icons.image_outlined
                               : Icons.text_snippet_outlined,
                           size: 16,
                           color: Theme.of(context).colorScheme.primary,
                         ),
                         const SizedBox(width: 6),
-                        Text(
-                          _selectedImage != null
-                              ? '图片识别 → ${activeProfile.multimodalConfig?.modelId ?? "未配置多模态"}'
-                              : '文字识别 → ${activeProfile.textConfig?.modelId ?? "未配置文本"}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context).colorScheme.onSurface.withAlpha(160),
+                        Expanded(
+                          child: Text(
+                            useImageMode
+                                ? '图像识别 → ${multimodalModelId ?? "未配置多模态"}'
+                                : '文字识别 → ${textModelId ?? "未配置文本"}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).colorScheme.onSurface.withAlpha(160),
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
@@ -325,36 +527,14 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
           const SizedBox(height: 12),
           // 图片选择（仅多模态配置显示）
           if (showImagePicker) ...[
-            if (_selectedImage != null)
-              Stack(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.file(
-                      _selectedImage!,
-                      height: 200,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: IconButton.filled(
-                      icon: const Icon(Icons.close, size: 18),
-                      onPressed: () => setState(() {
-                        _selectedImage = null;
-                        _base64Image = null;
-                      }),
-                    ),
-                  ),
-                ],
-              )
+            if (_selectedImages.isNotEmpty)
+              // 多张图片网格展示
+              _buildImageGrid(context)
             else
               OutlinedButton.icon(
-                onPressed: _pickImage,
+                onPressed: _pickImages,
                 icon: const Icon(Icons.image_outlined),
-                label: const Text('选择图片（账单/小票）'),
+                label: const Text('选择图片（账单/小票，可多选）'),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(48),
                   shape: RoundedRectangleBorder(
@@ -362,7 +542,18 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
                   ),
                 ),
               ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 8),
+            // 已选图片时，提供继续添加按钮
+            if (_selectedImages.isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _pickImages,
+                  icon: const Icon(Icons.add_photo_alternate_outlined, size: 20),
+                  label: const Text('继续添加'),
+                ),
+              ),
+            const SizedBox(height: 12),
           ],
           // 识别按钮
           FilledButton.icon(
@@ -373,7 +564,9 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.auto_awesome),
-            label: Text(_recognizing ? '识别中...' : 'AI 识别'),
+            label: Text(_recognizing
+                ? '识别中... (${_base64Images.isNotEmpty ? "处理 ${_base64Images.length} 张图片" : "处理中"})'
+                : 'AI 识别'),
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(48),
               shape: RoundedRectangleBorder(
@@ -382,19 +575,130 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          // 识别结果
-          if (_result != null) _buildResultCard(context, _result!),
+          // 识别结果（多条）
+          if (_results.isNotEmpty) ...[
+            Text(
+              '识别结果（${_results.length} 条）',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            // 多条结果列表
+            for (var i = 0; i < _results.length; i++)
+              _buildResultCard(context, _results[i], i),
+            // 统一保存按钮（关闭自动保存时显示）
+            if (!autoSave)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    // 手动保存前先检测重复，有重复时弹出确认对话框
+                    onPressed: _saving
+                        ? null
+                        : () async {
+                            final confirmed =
+                                await _checkDuplicatesBeforeManualSave();
+                            if (confirmed && mounted) {
+                              await _saveAllResults(autoMode: false);
+                            }
+                          },
+                    icon: _saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.save),
+                    label: Text(_saving
+                        ? '保存中...'
+                        : '全部保存（${_results.length} 条）'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ],
       ),
     );
   }
 
+  /// 多张图片网格展示
+  Widget _buildImageGrid(BuildContext context) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemCount: _selectedImages.length,
+      itemBuilder: (context, index) {
+        return Stack(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(
+                _selectedImages[index],
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.cover,
+              ),
+            ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: GestureDetector(
+                onTap: () => _removeImage(index),
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: const BoxDecoration(
+                    color: Colors.black54,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.close,
+                    size: 16,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+            // 序号标签
+            Positioned(
+              bottom: 4,
+              left: 4,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${index + 1}',
+                  style: const TextStyle(color: Colors.white, fontSize: 11),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   /// 识别结果卡片
-  Widget _buildResultCard(BuildContext context, AiRecognitionResult result) {
+  ///
+  /// [index] 用于在多条结果中显示序号
+  Widget _buildResultCard(BuildContext context, AiRecognitionResult result, int index) {
     return Card(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
       ),
+      margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -404,7 +708,7 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
               children: [
                 const Icon(Icons.check_circle, color: Colors.green, size: 20),
                 const SizedBox(width: 8),
-                Text('识别结果',
+                Text('识别结果 #${index + 1}',
                     style: Theme.of(context).textTheme.titleMedium),
               ],
             ),
@@ -414,26 +718,6 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
             _resultRow('分类', result.category),
             if (result.note != null && result.note!.isNotEmpty)
               _resultRow('备注', result.note!),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _saving ? null : _confirmSave,
-                icon: _saving
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.save),
-                label: Text(_saving ? '保存中...' : '确认保存'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            ),
           ],
         ),
       ),
@@ -448,6 +732,161 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
         children: [
           Text(label, style: const TextStyle(color: Colors.grey)),
           Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+}
+
+/// 自动保存确认对话框
+///
+/// 展示 AI 识别结果，并提示是否有重复账单。
+/// 用户确认后才执行保存操作。
+class _AutoSaveConfirmDialog extends StatelessWidget {
+  const _AutoSaveConfirmDialog({
+    required this.results,
+    required this.duplicates,
+    this.isManualSave = false,
+  });
+
+  /// AI 识别结果列表
+  final List<AiRecognitionResult> results;
+
+  /// 每个识别结果对应的重复交易列表（索引与 results 对应）
+  final List<List<Transaction>> duplicates;
+
+  /// 是否为手动保存触发的重复确认
+  final bool isManualSave;
+
+  @override
+  Widget build(BuildContext context) {
+    // 统计重复数量
+    final hasDuplicates = duplicates.any((list) => list.isNotEmpty);
+    final dupCount =
+        duplicates.where((list) => list.isNotEmpty).length;
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          Icon(
+            hasDuplicates ? Icons.warning_amber_rounded : Icons.check_circle,
+            color: hasDuplicates ? Colors.orange : Colors.green,
+            size: 24,
+          ),
+          const SizedBox(width: 8),
+          Text(isManualSave
+              ? (hasDuplicates ? '发现重复账单' : '确认保存')
+              : '确认保存账单'),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 重复警告
+            if (hasDuplicates) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withAlpha(30),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.withAlpha(80)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline,
+                        color: Colors.orange, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '检测到 $dupCount 条识别结果与已有账单重复（同一天、相同金额、分类），确认是否继续保存？',
+                        style: const TextStyle(fontSize: 13, color: Colors.orange),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            // 识别结果列表
+            Text(
+              '识别结果（${results.length} 条）',
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            for (var i = 0; i < results.length; i++) ...[
+              _buildResultSummary(context, results[i], i),
+              if (i < results.length - 1) const SizedBox(height: 8),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('确认保存'),
+        ),
+      ],
+    );
+  }
+
+  /// 单条识别结果摘要
+  Widget _buildResultSummary(
+      BuildContext context, AiRecognitionResult result, int index) {
+    final isDuplicate = index < duplicates.length && duplicates[index].isNotEmpty;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+        border: isDuplicate
+            ? Border.all(color: Colors.orange.withAlpha(120))
+            : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                '#${index + 1}',
+                style: const TextStyle(
+                    fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+              if (isDuplicate) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withAlpha(40),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    '重复',
+                    style: TextStyle(fontSize: 11, color: Colors.orange),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '¥${result.amount.toStringAsFixed(2)} · '
+            '${result.type == 'income' ? '收入' : '支出'} · '
+            '${result.category}',
+            style: const TextStyle(fontSize: 13),
+          ),
+          if (result.note != null && result.note!.isNotEmpty)
+            Text(
+              '备注：${result.note}',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
         ],
       ),
     );

@@ -13,7 +13,9 @@ class SettingsProvider extends ChangeNotifier {
         _expenseCategories = _service.expenseCategories,
         _hiddenIncome = _service.hiddenIncomeCategories,
         _hiddenExpense = _service.hiddenExpenseCategories,
-        _retainDataOnLogout = _service.retainDataOnLogout;
+        _retainDataOnLogout = _service.retainDataOnLogout,
+        _autoSaveAiBills = _service.autoSaveAiBills,
+        _billGroupMode = _service.billGroupMode;
 
   final SettingsService _service;
 
@@ -24,6 +26,8 @@ class SettingsProvider extends ChangeNotifier {
   List<String> _hiddenIncome;
   List<String> _hiddenExpense;
   bool _retainDataOnLogout;
+  bool _autoSaveAiBills;
+  String _billGroupMode;
 
   String get themeMode => _themeMode;
   String get currency => _currency;
@@ -32,6 +36,10 @@ class SettingsProvider extends ChangeNotifier {
   List<String> get hiddenIncomeCategories => _hiddenIncome;
   List<String> get hiddenExpenseCategories => _hiddenExpense;
   bool get retainDataOnLogout => _retainDataOnLogout;
+  /// AI 识别后是否自动保存到账单
+  bool get autoSaveAiBills => _autoSaveAiBills;
+  /// 账单分组模式：day / week / month / year
+  String get billGroupMode => _billGroupMode;
 
   /// 记账界面可见的收入分类（排除隐藏项）
   List<String> get visibleIncomeCategories =>
@@ -83,6 +91,20 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> setRetainDataOnLogout(bool value) async {
     _retainDataOnLogout = value;
     await _service.setRetainDataOnLogout(value);
+    notifyListeners();
+  }
+
+  /// 设置 AI 识别后是否自动保存到账单
+  Future<void> setAutoSaveAiBills(bool value) async {
+    _autoSaveAiBills = value;
+    await _service.setAutoSaveAiBills(value);
+    notifyListeners();
+  }
+
+  /// 设置账单分组模式（day / week / month / year）
+  Future<void> setBillGroupMode(String mode) async {
+    _billGroupMode = mode;
+    await _service.setBillGroupMode(mode);
     notifyListeners();
   }
 

@@ -82,55 +82,37 @@ class _AccountingSheetState extends State<AccountingSheet> {
   }
 
   /// 添加自定义分类
+  ///
+  /// 使用 showTextInputDialog 让 TextEditingController 在对话框内部管理，
+  /// 避免外部 dispose 控制器时对话框退出动画还在播放导致的 _dependents.isEmpty 错误。
   Future<void> _addCategory() async {
-    final ctrl = TextEditingController();
     // 在 async gap 之前预取 context 依赖
     final settings = context.read<SettingsProvider>();
     final messenger = ScaffoldMessenger.of(context);
     final typeStr = _type == TransactionType.income ? 'income' : 'expense';
 
-    final ok = await showAnimatedDialog<bool>(
+    // 对话框内部管理 TextEditingController 生命周期，返回输入的文本或 null
+    final text = await showTextInputDialog(
       context: context,
-      barrierLabel: '添加分类',
-      builder: (_) => AlertDialog(
-        title: const Text('添加分类'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: '分类名称',
-            hintText: '请输入分类名称（最多 10 个字）',
-            border: OutlineInputBorder(),
-          ),
-          maxLength: 10,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('添加'),
-          ),
-        ],
-      ),
+      title: '添加分类',
+      hintText: '请输入分类名称（最多 10 个字）',
+      confirmText: '添加',
+      cancelText: '取消',
+      maxLength: 10,
     );
 
-    if (ok != true) {
-      ctrl.dispose();
-      return;
-    }
+    // 用户取消则直接返回
+    if (text == null || text.isEmpty) return;
 
-    final added = await settings.addCategory(typeStr, ctrl.text);
-    if (!mounted) {
-      ctrl.dispose();
-      return;
-    }
+    final added = await settings.addCategory(typeStr, text);
+    if (!mounted) return;
     if (added) {
       // 自动选中新添加的分类
-      setState(() => _category = ctrl.text.trim());
-      messenger.showSnackBar(SnackBar(content: Text('已添加分类：${ctrl.text.trim()}')));
+      setState(() => _category = text);
+      messenger.showSnackBar(SnackBar(
+        content: Text('已添加分类：$text'),
+        behavior: SnackBarBehavior.floating,
+      ));
     } else {
       await showInfoDialog(
         context: context,
@@ -138,7 +120,6 @@ class _AccountingSheetState extends State<AccountingSheet> {
         content: '添加失败（可能已存在或数量超限）',
       );
     }
-    ctrl.dispose();
   }
 
   Future<void> _save() async {

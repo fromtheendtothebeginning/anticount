@@ -14,6 +14,8 @@ class SettingsService {
   static const _kHiddenIncomeCategories = 'settings_hidden_income_categories';
   static const _kHiddenExpenseCategories = 'settings_hidden_expense_categories';
   static const _kRetainDataOnLogout = 'settings_retain_data_on_logout';
+  static const _kAutoSaveAiBills = 'settings_auto_save_ai_bills';
+  static const _kBillGroupMode = 'settings_bill_group_mode'; // day/week/month/year
 
   /// 主题模式：system / light / dark
   String get themeMode => _prefs.getString(_kThemeMode) ?? 'system';
@@ -57,4 +59,16 @@ class SettingsService {
       _prefs.getBool(_kRetainDataOnLogout) ?? true;
   Future<void> setRetainDataOnLogout(bool value) =>
       _prefs.setBool(_kRetainDataOnLogout, value);
+
+  /// AI 记账识别后是否自动保存到账单（默认关闭）
+  bool get autoSaveAiBills =>
+      _prefs.getBool(_kAutoSaveAiBills) ?? false;
+  Future<void> setAutoSaveAiBills(bool value) =>
+      _prefs.setBool(_kAutoSaveAiBills, value);
+
+  /// 账单分组模式：day / week / month / year（默认按周）
+  String get billGroupMode =>
+      _prefs.getString(_kBillGroupMode) ?? 'week';
+  Future<void> setBillGroupMode(String mode) =>
+      _prefs.setString(_kBillGroupMode, mode);
 }

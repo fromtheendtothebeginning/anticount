@@ -39,7 +39,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     setState(() => _loading = false);
     if (ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('密码修改成功')),
+        const SnackBar(
+          content: Text('密码修改成功'),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       Navigator.of(context).pop();
     } else {

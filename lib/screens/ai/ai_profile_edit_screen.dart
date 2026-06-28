@@ -9,8 +9,9 @@ import 'ai_error_dialog.dart';
 /// AI 配置编辑页面
 ///
 /// 创建或编辑一个 AI 配置（Profile）。
-/// 文本识别和多模态识别可分别配置不同厂商、API Key 和模型。
-/// 例如：文本用 DeepSeek，多模态用 Kimi。
+/// 简化布局：配置名称 + 厂商选择（单选）+ API Key + 展示该厂商支持的模型。
+/// 同一 Profile 使用同一厂商和 API Key；
+/// 文字识别和图像识别的具体模型在配置主界面中切换。
 class AiProfileEditScreen extends StatefulWidget {
   const AiProfileEditScreen({super.key, this.profile});
 
@@ -23,16 +24,13 @@ class AiProfileEditScreen extends StatefulWidget {
 
 class _AiProfileEditScreenState extends State<AiProfileEditScreen> {
   late final TextEditingController _nameCtrl;
+  late final TextEditingController _apiKeyCtrl;
 
-  // 文本识别配置
-  AiVendor? _textVendor;
-  late final TextEditingController _textApiKeyCtrl;
+  /// 当前选中的厂商
+  AiVendor? _vendor;
+
+  /// 编辑模式下保留的原有模型 ID（同厂商时沿用，避免覆盖用户在配置界面的选择）
   String? _textModelId;
-
-  // 多模态识别配置（可选）
-  bool _enableMultimodal = false;
-  AiVendor? _multimodalVendor;
-  late final TextEditingController _multimodalApiKeyCtrl;
   String? _multimodalModelId;
 
   bool _verifying = false;
@@ -42,26 +40,33 @@ class _AiProfileEditScreenState extends State<AiProfileEditScreen> {
     super.initState();
     final p = widget.profile;
     _nameCtrl = TextEditingController(text: p?.name ?? '');
-
-    // 文本配置
-    _textVendor = p?.textConfig?.vendor;
-    _textApiKeyCtrl = TextEditingController(text: p?.textConfig?.apiKey ?? '');
+    // 编辑模式：取 textConfig 的厂商和 API Key 作为默认
+    _vendor = p?.textConfig?.vendor;
+    _apiKeyCtrl = TextEditingController(text: p?.textConfig?.apiKey ?? '');
     _textModelId = p?.textConfig?.modelId;
-
-    // 多模态配置
-    _enableMultimodal = p?.multimodalConfig != null;
-    _multimodalVendor = p?.multimodalConfig?.vendor;
-    _multimodalApiKeyCtrl =
-        TextEditingController(text: p?.multimodalConfig?.apiKey ?? '');
     _multimodalModelId = p?.multimodalConfig?.modelId;
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
-    _textApiKeyCtrl.dispose();
-    _multimodalApiKeyCtrl.dispose();
+    _apiKeyCtrl.dispose();
     super.dispose();
+  }
+
+  /// 切换厂商时重置模型 ID（新厂商的旧 modelId 无效）
+  void _onVendorChanged(AiVendor v) {
+    if (_vendor == v) return;
+    setState(() {
+      _vendor = v;
+      // 使用新厂商的默认模型
+      _textModelId = v.availableModels.isNotEmpty
+          ? v.availableModels.first.id
+          : null;
+      _multimodalModelId = v.multimodalModelIds.isNotEmpty
+          ? v.multimodalModelIds.first
+          : null;
+    });
   }
 
   /// 保存配置
@@ -72,46 +77,25 @@ class _AiProfileEditScreenState extends State<AiProfileEditScreen> {
       await showInfoDialog(context: context, title: '输入有误', content: '请输入配置名称');
       return;
     }
-    if (_textVendor == null) {
-      await showInfoDialog(
-          context: context, title: '输入有误', content: '请选择文本识别厂商');
+    if (_vendor == null) {
+      await showInfoDialog(context: context, title: '输入有误', content: '请选择厂商');
       return;
     }
-    if (_textApiKeyCtrl.text.trim().isEmpty) {
-      await showInfoDialog(
-          context: context, title: '输入有误', content: '请输入文本识别的 API Key');
-      return;
-    }
-    if (_textModelId == null) {
-      await showInfoDialog(
-          context: context, title: '输入有误', content: '请选择文本识别模型');
+    if (_apiKeyCtrl.text.trim().isEmpty) {
+      await showInfoDialog(context: context, title: '输入有误', content: '请输入 API Key');
       return;
     }
 
-    // 多模态配置校验（如果启用了）
-    if (_enableMultimodal) {
-      if (_multimodalVendor == null) {
-        await showInfoDialog(
-            context: context, title: '输入有误', content: '请选择多模态识别厂商');
-        return;
-      }
-      if (_multimodalApiKeyCtrl.text.trim().isEmpty) {
-        await showInfoDialog(
-            context: context, title: '输入有误', content: '请输入多模态识别的 API Key');
-        return;
-      }
-      if (_multimodalModelId == null) {
-        await showInfoDialog(
-            context: context, title: '输入有误', content: '请选择多模态识别模型');
-        return;
-      }
-      if (!_multimodalVendor!.supportsMultimodal) {
-        await showInfoDialog(
-            context: context,
-            title: '输入有误',
-            content: '${_multimodalVendor!.label} 不支持多模态，请选择 Kimi');
-        return;
-      }
+    // 确定默认模型 ID（若未设置）
+    final vendor = _vendor!;
+    final textModelId = _textModelId ??
+        (vendor.availableModels.isNotEmpty
+            ? vendor.availableModels.first.id
+            : '');
+    if (textModelId.isEmpty) {
+      await showInfoDialog(
+          context: context, title: '输入有误', content: '该厂商暂无可用模型');
+      return;
     }
 
     setState(() => _verifying = true);
@@ -124,53 +108,36 @@ class _AiProfileEditScreenState extends State<AiProfileEditScreen> {
     try {
       final service = AiService();
 
-      // 1. 验证文本配置 API Key
+      // 1. 验证 API Key
       try {
         await service.verifyApiKey(
-          vendor: _textVendor!,
-          apiKey: _textApiKeyCtrl.text.trim(),
-          modelId: _textModelId!,
+          vendor: vendor,
+          apiKey: _apiKeyCtrl.text.trim(),
+          modelId: textModelId,
         );
       } catch (e) {
         if (!mounted) return;
         await showAiErrorDialog(
           context: context,
-          title: '文本识别 API Key 验证失败',
+          title: 'API Key 验证失败',
           error: e.toString(),
         );
         return;
       }
 
-      // 2. 验证多模态配置 API Key（如果启用了）
-      if (_enableMultimodal) {
-        try {
-          await service.verifyApiKey(
-            vendor: _multimodalVendor!,
-            apiKey: _multimodalApiKeyCtrl.text.trim(),
-            modelId: _multimodalModelId!,
-          );
-        } catch (e) {
-          if (!mounted) return;
-          await showAiErrorDialog(
-            context: context,
-            title: '多模态识别 API Key 验证失败',
-            error: e.toString(),
-          );
-          return;
-        }
-      }
-
-      // 3. 保存配置
+      // 2. 构造配置
       final textConfig = AiModelConfig(
-        vendor: _textVendor!,
-        apiKey: _textApiKeyCtrl.text.trim(),
-        modelId: _textModelId!,
+        vendor: vendor,
+        apiKey: _apiKeyCtrl.text.trim(),
+        modelId: textModelId,
       );
-      final multimodalConfig = _enableMultimodal
+      // 若厂商支持多模态，自动配置多模态（使用默认多模态模型）
+      final multimodalConfig = vendor.supportsMultimodal &&
+              vendor.multimodalModelIds.isNotEmpty
           ? AiModelConfig(
-              vendor: _multimodalVendor!,
-              apiKey: _multimodalApiKeyCtrl.text.trim(),
-              modelId: _multimodalModelId!,
+              vendor: vendor,
+              apiKey: _apiKeyCtrl.text.trim(),
+              modelId: _multimodalModelId ?? vendor.multimodalModelIds.first,
             )
           : null;
 
@@ -237,68 +204,82 @@ class _AiProfileEditScreenState extends State<AiProfileEditScreen> {
             child: TextField(
               controller: _nameCtrl,
               decoration: const InputDecoration(
-                hintText: '例如：我的配置',
+                hintText: '例如：我的deepseek',
                 border: OutlineInputBorder(),
               ),
             ),
           ),
 
-          // 文本识别配置
-          _SectionTitle('文本识别'),
-          _ConfigSection(
-            vendor: _textVendor,
-            apiKeyCtrl: _textApiKeyCtrl,
-            modelId: _textModelId,
-            multimodalOnly: false,
-            onVendorChanged: (v) => setState(() {
-              _textVendor = v;
-              _textModelId = null;
-            }),
-            onModelChanged: (v) => setState(() => _textModelId = v),
+          // 厂商选择（圆角矩形 + PopupMenuButton 弹出动画）
+          _SectionTitle('厂商'),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: _VendorPicker(
+              vendor: _vendor,
+              onChanged: _onVendorChanged,
+            ),
           ),
 
-          // 多模态识别配置（可选）
-          _SectionTitle('多模态识别（可选）'),
-          if (!_enableMultimodal)
+          // API Key
+          if (_vendor != null) ...[
+            _SectionTitle('API Key'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Card(
-                child: ListTile(
-                  leading: const Icon(Icons.add_photo_alternate_outlined),
-                  title: const Text('启用多模态识别'),
-                  subtitle: const Text('用于图片识别，可使用与文本不同的厂商'),
-                  onTap: () => setState(() {
-                    _enableMultimodal = true;
-                    // 默认选 Kimi（支持多模态）
-                    _multimodalVendor = AiVendor.kimi;
-                    _multimodalModelId = null;
-                  }),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        controller: _apiKeyCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'API Key',
+                          hintText: 'sk-...',
+                          border: OutlineInputBorder(),
+                        ),
+                        obscureText: true,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'API 地址：${_vendor!.baseUrl}/chat/completions',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            )
-          else ...[
-            _ConfigSection(
-              vendor: _multimodalVendor,
-              apiKeyCtrl: _multimodalApiKeyCtrl,
-              modelId: _multimodalModelId,
-              multimodalOnly: true,
-              onVendorChanged: (v) => setState(() {
-                _multimodalVendor = v;
-                _multimodalModelId = null;
-              }),
-              onModelChanged: (v) => setState(() => _multimodalModelId = v),
             ),
+
+            // 该厂商支持的模型列表（仅展示，不可选择）
+            _SectionTitle('API 支持模型'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: TextButton.icon(
-                onPressed: () => setState(() {
-                  _enableMultimodal = false;
-                  _multimodalVendor = null;
-                  _multimodalApiKeyCtrl.clear();
-                  _multimodalModelId = null;
-                }),
-                icon: const Icon(Icons.remove_circle_outline, size: 18),
-                label: const Text('移除多模态识别'),
+              child: Card(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final model in _vendor!.availableModels)
+                      ListTile(
+                        leading: Icon(
+                          model.isMultimodal
+                              ? Icons.image_outlined
+                              : Icons.text_snippet_outlined,
+                          size: 20,
+                          color: Colors.grey[600],
+                        ),
+                        title: Text(model.id),
+                        subtitle: Text(
+                          [
+                            model.isMultimodal ? '多模态' : '文本',
+                            if (model.description != null) model.description!,
+                          ].join(' · '),
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                        dense: true,
+                      ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -324,10 +305,10 @@ class _AiProfileEditScreenState extends State<AiProfileEditScreen> {
                     ),
                     SizedBox(height: 8),
                     Text(
-                      '· 文本识别：用于自然语言记账（必填）\n'
-                      '· 多模态识别：用于图片记账，可使用不同厂商\n'
-                      '· 例如：文本用 DeepSeek，多模态用 Kimi\n'
-                      '· 识别时按类型自动选择对应配置',
+                      '· 每个 Profile 使用同一厂商和 API Key\n'
+                      '· 保存后可在配置主界面切换具体的文字/图像识别模型\n'
+                      '· 文字识别可用所有模型，图像识别仅可用多模态模型\n'
+                      '· DeepSeek 仅支持文本，Kimi 支持多模态',
                       style: TextStyle(fontSize: 12),
                     ),
                   ],
@@ -338,173 +319,6 @@ class _AiProfileEditScreenState extends State<AiProfileEditScreen> {
           const SizedBox(height: 16),
         ],
       ),
-    );
-  }
-}
-
-/// 单组配置（厂商 + API Key + 模型选择）
-class _ConfigSection extends StatelessWidget {
-  const _ConfigSection({
-    required this.vendor,
-    required this.apiKeyCtrl,
-    required this.modelId,
-    required this.multimodalOnly,
-    required this.onVendorChanged,
-    required this.onModelChanged,
-  });
-
-  final AiVendor? vendor;
-  final TextEditingController apiKeyCtrl;
-  final String? modelId;
-  final bool multimodalOnly;
-  final ValueChanged<AiVendor> onVendorChanged;
-  final ValueChanged<String?> onModelChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Card(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // 厂商选择
-            ...AiVendor.values.map((v) {
-              // 多模态模式下，过滤不支持多模态的厂商
-              if (multimodalOnly && !v.supportsMultimodal) {
-                return const SizedBox.shrink();
-              }
-              final selected = vendor == v;
-              return ListTile(
-                leading: Icon(
-                  selected
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_unchecked,
-                  color: selected
-                      ? Theme.of(context).colorScheme.primary
-                      : Colors.grey,
-                ),
-                title: Text(v.label),
-                subtitle: Text(
-                  v.supportsMultimodal
-                      ? '支持多模态'
-                      : '仅文本',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                onTap: () => onVendorChanged(v),
-              );
-            }),
-            if (vendor != null) ...[
-              const Divider(height: 1),
-              // API Key
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    TextField(
-                      controller: apiKeyCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'API Key',
-                        hintText: 'sk-...',
-                        border: OutlineInputBorder(),
-                      ),
-                      obscureText: true,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'API 地址：${vendor!.baseUrl}/chat/completions',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-              ),
-              // 模型选择
-              _ModelList(
-                vendor: vendor!,
-                value: modelId,
-                multimodalOnly: multimodalOnly,
-                onChanged: onModelChanged,
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 模型列表选择
-class _ModelList extends StatelessWidget {
-  const _ModelList({
-    required this.vendor,
-    required this.value,
-    required this.multimodalOnly,
-    required this.onChanged,
-  });
-
-  final AiVendor vendor;
-  final String? value;
-  final bool multimodalOnly;
-  final ValueChanged<String?> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final models = multimodalOnly
-        ? vendor.availableModels.where((m) => m.isMultimodal).toList()
-        : vendor.availableModels;
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              multimodalOnly ? '多模态模型' : '模型',
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ),
-        ),
-        ...models.map((m) {
-          final selected = value == m.id;
-          return ListTile(
-            leading: Icon(
-              selected
-                  ? Icons.radio_button_checked
-                  : Icons.radio_button_unchecked,
-              size: 20,
-              color: selected
-                  ? Theme.of(context).colorScheme.primary
-                  : Colors.grey,
-            ),
-            title: Text(m.id),
-            subtitle: m.description != null
-                ? Text(
-                    '${m.isMultimodal ? "多模态" : "文本"} · ${m.description}',
-                    style: const TextStyle(fontSize: 11),
-                  )
-                : Text(
-                    m.isMultimodal ? '多模态' : '文本',
-                    style: const TextStyle(fontSize: 11),
-                  ),
-            onTap: () => onChanged(selected ? null : m.id),
-          );
-        }),
-        if (models.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text(
-              '该厂商暂无多模态模型',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ),
-        if (value != null)
-          ListTile(
-            leading: const Icon(Icons.clear, size: 20, color: Colors.grey),
-            title: const Text('清除选择'),
-            onTap: () => onChanged(null),
-          ),
-      ],
     );
   }
 }
@@ -525,6 +339,255 @@ class _SectionTitle extends StatelessWidget {
           fontSize: 13,
         ),
       ),
+    );
+  }
+}
+
+/// 厂商选择器
+///
+/// 圆角矩形外观 + 自定义 Overlay 下拉列表。
+/// 弹出列表宽度与选择组件一致，显示在选择组件正下方，不遮挡选择组件。
+/// 带卷帘门（下拉展开）动画。
+class _VendorPicker extends StatefulWidget {
+  const _VendorPicker({required this.vendor, required this.onChanged});
+
+  final AiVendor? vendor;
+  final ValueChanged<AiVendor> onChanged;
+
+  @override
+  State<_VendorPicker> createState() => _VendorPickerState();
+}
+
+class _VendorPickerState extends State<_VendorPicker>
+    with SingleTickerProviderStateMixin {
+  final GlobalKey _key = GlobalKey();
+  OverlayEntry? _overlayEntry;
+  late final AnimationController _animCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _animCtrl = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+  }
+
+  @override
+  void dispose() {
+    _removeOverlay();
+    _animCtrl.dispose();
+    super.dispose();
+  }
+
+  /// 移除弹出列表
+  void _removeOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  /// 打开 / 关闭下拉列表
+  void _toggle() {
+    if (_overlayEntry != null) {
+      _close();
+    } else {
+      _open();
+    }
+  }
+
+  /// 打开下拉列表
+  ///
+  /// 通过 GlobalKey 获取选择组件的位置和大小，
+  /// 将弹出列表定位在选择组件正下方，宽度与选择组件一致。
+  void _open() {
+    final renderBox = _key.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+    final size = renderBox.size;
+    final position = renderBox.localToGlobal(Offset.zero);
+    final rect = position & size;
+
+    _overlayEntry = OverlayEntry(
+      builder: (context) => _VendorDropdown(
+        rect: rect,
+        vendor: widget.vendor,
+        animCtrl: _animCtrl,
+        onSelect: (v) {
+          widget.onChanged(v);
+          _close();
+        },
+        onDismiss: _close,
+      ),
+    );
+    Overlay.of(context).insert(_overlayEntry!);
+    _animCtrl.forward(from: 0);
+  }
+
+  /// 关闭下拉列表
+  void _close() {
+    _animCtrl.reverse().then((_) {
+      _removeOverlay();
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      key: _key,
+      onTap: _toggle,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: widget.vendor != null
+                ? Theme.of(context).colorScheme.primary.withAlpha(120)
+                : Theme.of(context).colorScheme.outline,
+          ),
+        ),
+        child: Row(
+          children: [
+            if (widget.vendor != null)
+              Icon(
+                widget.vendor!.supportsMultimodal
+                    ? Icons.image_outlined
+                    : Icons.text_snippet_outlined,
+                size: 18,
+                color: Theme.of(context).colorScheme.primary,
+              )
+            else
+              Icon(Icons.business_outlined, size: 18, color: Colors.grey[500]),
+            const SizedBox(width: 8),
+            Expanded(
+              child: widget.vendor == null
+                  ? Text('选择厂商',
+                      style: TextStyle(color: Colors.grey[500], fontSize: 14))
+                  : Text(
+                      '${widget.vendor!.label}（${widget.vendor!.supportsMultimodal ? '支持多模态' : '仅文本'}）',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+            ),
+            // 下拉箭头
+            const Icon(Icons.arrow_drop_down, color: Colors.grey),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 厂商下拉列表（Overlay）
+///
+/// 定位在选择组件正下方，宽度与选择组件一致。
+/// 点击选项或外部区域时关闭。
+class _VendorDropdown extends StatelessWidget {
+  const _VendorDropdown({
+    required this.rect,
+    required this.vendor,
+    required this.animCtrl,
+    required this.onSelect,
+    required this.onDismiss,
+  });
+
+  /// 选择组件的位置和大小
+  final Rect rect;
+  final AiVendor? vendor;
+  final AnimationController animCtrl;
+  final ValueChanged<AiVendor> onSelect;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        // 全屏透明遮罩，点击关闭
+        GestureDetector(
+          onTap: onDismiss,
+          behavior: HitTestBehavior.opaque,
+          child: const SizedBox.expand(),
+        ),
+        // 弹出列表：定位在选择组件下方，宽度一致
+        Positioned(
+          left: rect.left,
+          top: rect.bottom + 4,
+          width: rect.width,
+          child: AnimatedBuilder(
+            animation: animCtrl,
+            builder: (context, child) {
+              // 卷帘门效果：用 ClipRect + Align(heightFactor) 从顶部向下展开
+              return ClipRect(
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  heightFactor: animCtrl.value,
+                  child: child,
+                ),
+              );
+            },
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 8,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: AiVendor.values.map((v) {
+                    final selected = vendor == v;
+                    return InkWell(
+                      onTap: () => onSelect(v),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 12),
+                        child: Row(
+                          children: [
+                            Icon(
+                              v.supportsMultimodal
+                                  ? Icons.image_outlined
+                                  : Icons.text_snippet_outlined,
+                              size: 18,
+                              color: selected
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Colors.grey[600],
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '${v.label}（${v.supportsMultimodal ? '支持多模态' : '仅文本'}）',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: selected
+                                      ? Theme.of(context).colorScheme.primary
+                                      : null,
+                                  fontWeight:
+                                      selected ? FontWeight.w600 : null,
+                                ),
+                              ),
+                            ),
+                            if (selected)
+                              Icon(Icons.check,
+                                  size: 16,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primary),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
