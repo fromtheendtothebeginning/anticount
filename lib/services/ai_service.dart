@@ -317,6 +317,52 @@ class AiRecognitionResult {
   final String? note;
 }
 
+/// AI 对话消息
+///
+/// 用于对话模式，记录用户和 AI 的多轮交互。
+/// 用户消息可附带多张图片；AI 消息可附带识别结果供用户保存。
+class AiChatMessage {
+  const AiChatMessage({
+    required this.role,
+    this.text,
+    this.base64Images = const [],
+    this.results = const [],
+    this.time,
+  });
+
+  /// 角色：system / user / assistant
+  final String role;
+
+  /// 文本内容
+  final String? text;
+
+  /// 用户消息附带的 base64 图片列表
+  final List<String> base64Images;
+
+  /// AI 消息中解析出的可保存识别结果
+  final List<AiRecognitionResult> results;
+
+  /// 消息时间
+  final DateTime? time;
+
+  /// 是否为用户消息
+  bool get isUser => role == 'user';
+
+  /// 是否为 AI 消息
+  bool get isAssistant => role == 'assistant';
+}
+
+/// AI 对话响应
+class AiChatResponse {
+  const AiChatResponse({
+    this.text,
+    this.results = const [],
+  });
+
+  final String? text;
+  final List<AiRecognitionResult> results;
+}
+
 /// AI 服务
 ///
 /// 管理多个 AI 配置（Profile），调用大模型 API 进行记账识别。
@@ -809,6 +855,267 @@ class AiService {
     }
     // 逻辑上不会到达
     throw const AiException('AI 识别失败');
+  }
+
+  /// AI 对话模式
+  ///
+  /// 支持多轮文字 + 图片对话。根据最新消息是否含图选择文本或多模态配置。
+  /// AI 回复会优先尝试解析为 JSON 账单数组；解析失败则视为普通文本回复。
+  Future<AiChatResponse> chat({
+    required AiModelConfig config,
+    required List<AiChatMessage> history,
+    required AiChatMessage userMessage,
+    required List<String> expenseCategories,
+    required List<String> incomeCategories,
+  }) async {
+    if (config.apiKey.isEmpty) {
+      throw const AiException('未配置 AI 对话');
+    }
+    if (config.modelId.isEmpty) {
+      throw const AiException('未配置 AI 对话模型');
+    }
+
+    final prompt = _buildChatPrompt(expenseCategories, incomeCategories);
+    final url = _buildEndpoint(config.vendor);
+    final isAnthropic = config.vendor.apiFormat == AiApiFormat.anthropic;
+
+    // 构造消息列表：system 提示词 + 历史消息 + 当前用户消息
+    final messages = <Map<String, dynamic>>[];
+
+    void addMessage(AiChatMessage msg) {
+      if (msg.isUser) {
+        if (isAnthropic) {
+          // Anthropic: 图片放在 content 数组中
+          final content = <Map<String, dynamic>>[];
+          for (final img in msg.base64Images) {
+            content.add({
+              'type': 'image',
+              'source': {
+                'type': 'base64',
+                'media_type': 'image/jpeg',
+                'data': img,
+              },
+            });
+          }
+          if (msg.text != null && msg.text!.isNotEmpty) {
+            content.add({'type': 'text', 'text': msg.text!});
+          }
+          messages.add({'role': 'user', 'content': content});
+        } else {
+          // OpenAI 格式：content 数组支持 text + image_url
+          final content = <Map<String, dynamic>>[];
+          if (msg.text != null && msg.text!.isNotEmpty) {
+            content.add({'type': 'text', 'text': msg.text!});
+          }
+          for (final img in msg.base64Images) {
+            content.add({
+              'type': 'image_url',
+              'image_url': {'url': 'data:image/jpeg;base64,$img'},
+            });
+          }
+          messages.add({'role': 'user', 'content': content});
+        }
+      } else if (msg.isAssistant) {
+        if (msg.text != null && msg.text!.isNotEmpty) {
+          messages.add({'role': 'assistant', 'content': msg.text});
+        }
+      }
+    }
+
+    // 添加历史消息（仅保留最近 10 条，避免上下文过长）
+    final recentHistory = history.length > 10 ? history.sublist(history.length - 10) : history;
+    for (final msg in recentHistory) {
+      addMessage(msg);
+    }
+    addMessage(userMessage);
+
+    final body = <String, dynamic>{
+      'model': config.modelId,
+      'max_tokens': 1024,
+    };
+    if (isAnthropic) {
+      // Anthropic: system 作为顶层字段
+      body['system'] = prompt;
+      body['messages'] = messages;
+    } else {
+      // OpenAI 格式：system 作为第一条消息
+      body['messages'] = [
+        {'role': 'system', 'content': prompt},
+        ...messages,
+      ];
+    }
+
+    final http.Response response;
+    try {
+      response = await http.post(
+        Uri.parse(url),
+        headers: _buildHeaders(config.vendor, config.apiKey),
+        body: jsonEncode(body),
+      ).timeout(_kRequestTimeout);
+    } on TimeoutException {
+      throw const AiException('AI 对话请求超时（20s），请检查网络或代理设置');
+    } catch (e) {
+      throw AiException('AI 对话网络请求失败：$e');
+    }
+
+    if (response.statusCode != 200) {
+      throw AiException('AI 对话请求失败（${response.statusCode}）：${response.body}');
+    }
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final content = _extractContent(config.vendor, data);
+
+    // 尝试从回复中解析账单结果
+    final validCategories = [...expenseCategories, ...incomeCategories];
+    final results = _parseChatResults(content, validCategories: validCategories);
+
+    // 如果解析到账单，把账单从文本中移除，剩余部分作为自然语言回复
+    String? textReply;
+    if (results.isNotEmpty) {
+      textReply = _removeJsonBlock(content);
+      if (textReply.trim().isEmpty) textReply = null;
+    } else {
+      textReply = content.trim();
+    }
+
+    return AiChatResponse(
+      text: textReply,
+      results: results,
+    );
+  }
+
+  /// 从 AI 对话回复中解析账单结果
+  ///
+  /// 支持两种形式：
+  /// 1. 直接返回单条 JSON 对象
+  /// 2. 返回 {"bills": [...]} 数组
+  List<AiRecognitionResult> _parseChatResults(
+    String content, {
+    required List<String> validCategories,
+  }) {
+    final results = <AiRecognitionResult>[];
+
+    // 优先匹配 ```json ... ``` 或 ``` ... ``` 包裹的 JSON
+    var jsonStr = content.trim();
+    if (jsonStr.contains('```')) {
+      final matches = RegExp(r'```(?:json)?\s*([\s\S]*?)```').allMatches(jsonStr);
+      for (final match in matches) {
+        final block = match.group(1)?.trim() ?? '';
+        try {
+          final decoded = jsonDecode(block);
+          if (decoded is Map<String, dynamic>) {
+            if (decoded.containsKey('bills')) {
+              final bills = decoded['bills'] as List;
+              for (final bill in bills) {
+                results.add(_parseSingleResult(bill as Map<String, dynamic>, validCategories));
+              }
+            } else {
+              results.add(_parseSingleResult(decoded, validCategories));
+            }
+          }
+        } catch (_) {
+          // 该 block 不是有效账单 JSON，忽略
+        }
+      }
+    }
+
+    if (results.isNotEmpty) return results;
+
+    // 没有 markdown block，尝试整个内容是否就是 JSON
+    try {
+      final decoded = jsonDecode(jsonStr);
+      if (decoded is Map<String, dynamic>) {
+        if (decoded.containsKey('bills')) {
+          final bills = decoded['bills'] as List;
+          for (final bill in bills) {
+            results.add(_parseSingleResult(bill as Map<String, dynamic>, validCategories));
+          }
+        } else {
+          results.add(_parseSingleResult(decoded, validCategories));
+        }
+      }
+    } catch (_) {
+      // 不是 JSON，视为普通文本
+    }
+
+    return results;
+  }
+
+  AiRecognitionResult _parseSingleResult(
+    Map<String, dynamic> map,
+    List<String> validCategories,
+  ) {
+    final rawAmount = map['amount'];
+    if (rawAmount == null) {
+      throw AiException('缺少 amount 字段');
+    }
+    final amount = (rawAmount as num).toDouble();
+    if (amount <= 0) {
+      throw AiException('amount 必须为正数');
+    }
+
+    final type = (map['type'] as String?)?.toLowerCase();
+    if (type != 'income' && type != 'expense') {
+      throw AiException('type 字段无效');
+    }
+
+    final category = (map['category'] as String?) ?? '';
+    if (category.isEmpty || !validCategories.contains(category)) {
+      throw AiException('category 不在分类列表中');
+    }
+
+    final note = map['note'] as String?;
+    return AiRecognitionResult(
+      amount: amount,
+      type: type == 'income' ? 'income' : 'expense',
+      category: category,
+      note: note,
+    );
+  }
+
+  /// 移除回复中的 JSON 代码块，保留自然语言部分
+  String _removeJsonBlock(String content) {
+    return content.replaceAllMapped(
+      RegExp(r'```(?:json)?\s*[\s\S]*?```'),
+      (_) => '',
+    ).trim();
+  }
+
+  String _buildChatPrompt(
+    List<String> expenseCategories,
+    List<String> incomeCategories,
+  ) {
+    return '''你是 Anticount 的记账助手，正在与用户进行多轮对话。
+
+任务：
+1. 如果用户提供的信息足够记账，请返回账单 JSON，并可用自然语言简要确认。
+2. 如果信息不足（缺少金额、类型、分类等），请用自然语言追问，不要返回 JSON。
+3. 你可以根据上下文理解用户说的“昨天”“上周三”等相对时间。
+
+当需要返回账单时，请使用以下 JSON 格式（可包裹在 ```json 代码块中）：
+{
+  "bills": [
+    {
+      "amount": 35.5,
+      "type": "expense",
+      "category": "餐饮",
+      "note": "午餐"
+    }
+  ]
+}
+
+字段约定：
+1. "amount" 必须是正数（number 类型）
+2. "type" 必须是 "income" 或 "expense"
+3. "category" 必须从下方分类列表中选择，不能编造
+4. "note" 可选，没有则传空字符串
+
+支出可选分类：${expenseCategories.join('、')}
+收入可选分类：${incomeCategories.join('、')}
+
+规则：
+1. 追问时只返回自然语言，不要返回 JSON。
+2. 返回账单时也可以附带简短自然语言说明。''';
   }
 
   String _buildPrompt(

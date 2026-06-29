@@ -12,6 +12,7 @@ import '../../providers/settings_provider.dart';
 import '../../providers/transaction_provider.dart';
 import '../../services/ai_service.dart';
 import '../../widgets/animated_dialog.dart';
+import 'ai_chat_panel.dart';
 import 'ai_config_screen.dart';
 import 'ai_error_dialog.dart';
 
@@ -36,6 +37,8 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
   bool _saving = false;
   // 多条识别结果
   List<AiRecognitionResult> _results = const [];
+  // 是否为对话模式（与单次识别模式可互相切换）
+  bool _isChatMode = false;
 
   @override
   void dispose() {
@@ -351,8 +354,8 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
       appBar: AppBar(
         title: const Text('AI 记账'),
         actions: [
-          // 自动保存状态标识
-          if (settings.autoSaveAiBills)
+          // 自动保存状态标识（仅单次识别模式显示）
+          if (!_isChatMode && settings.autoSaveAiBills)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
               child: Center(
@@ -381,6 +384,16 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
                 ),
               ),
             ),
+          // 对话模式下可清空当前对话
+          if (_isChatMode && ai.chatHistory.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              tooltip: '清空对话',
+              onPressed: () {
+                ai.clearChatHistory();
+                _showTip('已清空对话');
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'AI 配置',
@@ -392,7 +405,37 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
       ),
       body: !hasProfile
           ? _buildNoProfileHint(context, ai)
-          : _buildContent(context, ai),
+          : Column(
+              children: [
+                // 模式切换：单次识别 / 对话模式
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment<bool>(
+                        value: false,
+                        label: Text('单次识别'),
+                      ),
+                      ButtonSegment<bool>(
+                        value: true,
+                        label: Text('对话模式'),
+                      ),
+                    ],
+                    selected: {_isChatMode},
+                    onSelectionChanged: (value) {
+                      setState(() => _isChatMode = value.first);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // 根据模式显示不同面板
+                Expanded(
+                  child: _isChatMode
+                      ? const AiChatPanel()
+                      : _buildContent(context, ai),
+                ),
+              ],
+            ),
     );
   }
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import '../../models/transaction.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/transaction_provider.dart';
+import '../../services/widget_service.dart';
 import '../../widgets/animated_dialog.dart';
 import '../accounting/accounting_screen.dart';
 import 'bills_detail_screen.dart';
@@ -79,9 +81,12 @@ class _BillsScreenState extends State<BillsScreen> {
   /// 月收支按月范围查询；每日列表按周范围查询，这样切换周时日期列表对应更换。
   /// [targetWeekStart] 用于指定要加载的目标周（不传则使用当前 _selectedWeekStart），
   /// 切换周时先加载数据再更新状态，确保动画与数据同步。
+  /// [animForward] 用于指定本次周切换的动画方向（仅周切换时传入），
+  /// 与数据在同一个 setState 中更新，避免快速连点时方向被覆盖。
   /// [showLoading] 是否显示全屏加载指示器（首次加载为 true，周切换为 false）。
   Future<void> _loadData({
     DateTime? targetWeekStart,
+    bool? animForward,
     bool showLoading = true,
   }) async {
     final user = context.read<AuthProvider>().user;
@@ -91,15 +96,19 @@ class _BillsScreenState extends State<BillsScreen> {
     final weekStart = targetWeekStart ?? _selectedWeekStart;
     final weekEnd = weekStart
         .add(const Duration(days: 6, hours: 23, minutes: 59, seconds: 59));
+    // 根据目标周同步更新顶部月份，跨月切换周时月份显示保持一致
+    final newMonth = DateTime(weekStart.year, weekStart.month, 1);
+    final monthStart = newMonth;
+    final monthEnd = DateTime(newMonth.year, newMonth.month + 1, 0, 23, 59, 59, 999);
 
     // 仅首次加载显示全屏加载指示器，周切换时保持原界面，让 AnimatedSwitcher 播放动画
     if (showLoading) setState(() => _loading = true);
 
-    // 查询本月收支（用于月收入/月支出栏）
+    // 查询本月收支（用于月收入/月支出栏），按目标周所在月份统计
     final monthSummary = await provider.summaryByRange(
       userId: user.id,
-      start: _monthStart,
-      end: _monthEnd,
+      start: monthStart,
+      end: monthEnd,
     );
 
     // 查询本周所有交易（用于每日分组）
@@ -120,15 +129,24 @@ class _BillsScreenState extends State<BillsScreen> {
         Map.fromEntries(sortedKeys.map((k) => MapEntry(k, daily[k]!)));
 
     if (!mounted) return;
-    // 同时更新 _selectedWeekStart 和数据，确保 AnimatedSwitcher 的 key
+    // 同时更新 _selectedWeekStart、_selectedMonth 和数据，确保 AnimatedSwitcher 的 key
     // 变化时 child 内容已更新，动画才会正确显示新数据。
     setState(() {
       _selectedWeekStart = weekStart;
+      _selectedMonth = newMonth;
+      if (animForward != null) _weekAnimForward = animForward;
       _monthIncome = monthSummary.income;
       _monthExpense = monthSummary.expense;
       _dailyGroups = sortedDaily;
       _loading = false;
     });
+
+    // 同步更新桌面卡片数据
+    unawaited(WidgetService.updateMonthlySummary(
+      income: _monthIncome,
+      expense: _monthExpense,
+      monthLabel: '${_selectedMonth.month}月收支',
+    ));
   }
 
   /// 上一月
@@ -169,13 +187,11 @@ class _BillsScreenState extends State<BillsScreen> {
 
   /// 上一周
   ///
-  /// 先设置动画方向，然后异步加载数据。数据加载完成后，
-  /// _loadData 会同时更新 _selectedWeekStart 和 _dailyGroups，
-  /// 确保 AnimatedSwitcher 在 key 变化时 child 内容已更新。
+  /// 动画方向与数据在同一个 _loadData 调用中更新，避免快速连点时方向被覆盖。
   void _prevWeek() {
-    setState(() => _weekAnimForward = false);
     _loadData(
       targetWeekStart: _selectedWeekStart.subtract(const Duration(days: 7)),
+      animForward: false,
       showLoading: false,
     );
   }
@@ -183,9 +199,9 @@ class _BillsScreenState extends State<BillsScreen> {
   /// 下一周
   void _nextWeek() {
     if (!_canNextWeek) return;
-    setState(() => _weekAnimForward = true);
     _loadData(
       targetWeekStart: _selectedWeekStart.add(const Duration(days: 7)),
+      animForward: true,
       showLoading: false,
     );
   }
@@ -463,11 +479,16 @@ class _BillsScreenState extends State<BillsScreen> {
       switchInCurve: Curves.easeOut,
       switchOutCurve: Curves.easeIn,
       transitionBuilder: (child, animation) {
-        // 根据切换方向：下一周从右侧滑入，上一周从左侧滑入
-        final offset = Tween<Offset>(
-          begin: Offset(_weekAnimForward ? 1.0 : -1.0, 0),
-          end: Offset.zero,
-        ).animate(animation);
+        // 区分当前动画是进入的新 child 还是退出的旧 child
+        final isEntering = child.key == ValueKey(_selectedWeekStart.toIso8601String());
+        // 同一方向滑动：下一周整体向左平移，上一周整体向右平移
+        final begin = isEntering
+            ? (_weekAnimForward ? const Offset(1.0, 0) : const Offset(-1.0, 0))
+            : (_weekAnimForward ? const Offset(-1.0, 0) : const Offset(1.0, 0));
+        final end = isEntering
+            ? Offset.zero
+            : (_weekAnimForward ? const Offset(-1.0, 0) : const Offset(1.0, 0));
+        final offset = Tween<Offset>(begin: begin, end: end).animate(animation);
         return SlideTransition(
           position: offset,
           child: FadeTransition(opacity: animation, child: child),

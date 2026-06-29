@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:home_widget/home_widget.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -13,11 +14,14 @@ import 'screens/home/home_screen.dart';
 import 'services/ai_service.dart';
 import 'services/auth_service.dart';
 import 'services/database_service.dart';
+import 'services/export_service.dart';
 import 'services/settings_service.dart';
 import 'services/transaction_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 初始化桌面卡片插件（Android 留空字符串）
+  await HomeWidget.setAppGroupId('');
 
   final db = await DatabaseService.instance.database;
   final prefs = await SharedPreferences.getInstance();
@@ -25,12 +29,14 @@ Future<void> main() async {
   final authService = AuthService(db);
   final transactionService = TransactionService(db);
   final settingsService = SettingsService(prefs);
+  final exportService = ExportService(transactionService);
   final aiService = AiService();
 
   runApp(AnticountApp(
     authService: authService,
     transactionService: transactionService,
     settingsService: settingsService,
+    exportService: exportService,
     aiService: aiService,
   ));
 }
@@ -41,12 +47,14 @@ class AnticountApp extends StatelessWidget {
     required this.authService,
     required this.transactionService,
     required this.settingsService,
+    required this.exportService,
     required this.aiService,
   });
 
   final AuthService authService;
   final TransactionService transactionService;
   final SettingsService settingsService;
+  final ExportService exportService;
   final AiService aiService;
 
   @override
@@ -60,11 +68,14 @@ class AnticountApp extends StatelessWidget {
           create: (_) => TransactionProvider(transactionService),
         ),
         ChangeNotifierProvider(
-          create: (_) => SettingsProvider(settingsService),
-        ),
-        ChangeNotifierProvider(
-          create: (_) => AiProvider(aiService)..bootstrap(),
-        ),
+            create: (_) => SettingsProvider(settingsService),
+          ),
+          Provider(
+            create: (_) => exportService,
+          ),
+          ChangeNotifierProvider(
+            create: (_) => AiProvider(aiService)..bootstrap(),
+          ),
       ],
       child: Consumer<SettingsProvider>(
         builder: (context, settings, _) {

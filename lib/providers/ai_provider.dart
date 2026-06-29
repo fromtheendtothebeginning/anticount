@@ -20,8 +20,14 @@ class AiProvider extends ChangeNotifier {
   String? _activeMultimodalModelId;
   bool _initialized = false;
 
+  /// 对话模式历史消息
+  final List<AiChatMessage> _chatHistory = [];
+
   List<AiProfile> get profiles => _profiles;
   bool get initialized => _initialized;
+
+  /// 当前对话历史（不可变副本）
+  List<AiChatMessage> get chatHistory => List.unmodifiable(_chatHistory);
 
   /// 文字识别当前激活的配置
   AiProfile? get activeTextProfile {
@@ -253,5 +259,53 @@ class AiProvider extends ChangeNotifier {
       expenseCategories: expenseCategories,
       incomeCategories: incomeCategories,
     );
+  }
+
+  /// 发送对话消息
+  ///
+  /// 根据用户消息是否含图自动选择文本配置或多模态配置。
+  /// 返回 AI 回复，并自动追加到 [_chatHistory]。
+  Future<AiChatResponse> sendChatMessage({
+    required String text,
+    required List<String> base64Images,
+    required List<String> expenseCategories,
+    required List<String> incomeCategories,
+  }) async {
+    final hasImage = base64Images.isNotEmpty;
+    final config = hasImage ? effectiveMultimodalConfig : effectiveTextConfig;
+    if (config == null || !config.isValid) {
+      throw AiException(hasImage ? '未选择图像识别配置' : '未选择文本识别配置');
+    }
+
+    final userMessage = AiChatMessage(
+      role: 'user',
+      text: text.isEmpty ? null : text,
+      base64Images: base64Images,
+      time: DateTime.now(),
+    );
+
+    final response = await _service.chat(
+      config: config,
+      history: _chatHistory,
+      userMessage: userMessage,
+      expenseCategories: expenseCategories,
+      incomeCategories: incomeCategories,
+    );
+
+    _chatHistory.add(userMessage);
+    _chatHistory.add(AiChatMessage(
+      role: 'assistant',
+      text: response.text,
+      results: response.results,
+      time: DateTime.now(),
+    ));
+    notifyListeners();
+    return response;
+  }
+
+  /// 清空对话历史
+  void clearChatHistory() {
+    _chatHistory.clear();
+    notifyListeners();
   }
 }

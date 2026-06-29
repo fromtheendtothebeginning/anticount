@@ -4,10 +4,12 @@ import 'package:provider/provider.dart';
 import '../../constants/app_info.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../services/widget_service.dart';
 import '../../widgets/animated_dialog.dart';
 import 'category_management_screen.dart';
 import 'change_password_screen.dart';
 import 'delete_account_screen.dart';
+import 'export_screen.dart';
 
 /// 设置页面
 class SettingsScreen extends StatelessWidget {
@@ -106,6 +108,28 @@ class SettingsScreen extends StatelessWidget {
                 subtitle: const Text('开启后，AI 识别完成将自动保存为账单'),
                 value: settings.autoSaveAiBills,
                 onChanged: (v) => settings.setAutoSaveAiBills(v),
+              ),
+            ],
+          ),
+          _SectionTitle('数据'),
+          _SettingsCard(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.file_upload_outlined),
+                title: const Text('导出账单'),
+                subtitle: const Text('导出 CSV 并分享'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const ExportScreen(),
+                )),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.widgets_outlined),
+                title: const Text('桌面卡片'),
+                subtitle: const Text('添加本月收支到桌面'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _addDesktopWidget(context),
               ),
             ],
           ),
@@ -212,6 +236,25 @@ class SettingsScreen extends StatelessWidget {
     );
     if (ok == true) {
       await authProvider.logout(retainData: retain);
+    }
+  }
+
+  /// 请求添加桌面卡片
+  Future<void> _addDesktopWidget(BuildContext context) async {
+    try {
+      await WidgetService.requestPinWidget();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('请按系统提示完成添加'), behavior: SnackBarBehavior.floating),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      await showInfoDialog(
+        context: context,
+        title: '添加失败',
+        content: e.toString(),
+      );
     }
   }
 }
