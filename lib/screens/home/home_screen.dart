@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../ai/ai_accounting_screen.dart';
 import '../bills/bills_screen.dart';
 import '../profile/user_profile_screen.dart';
+import '../statistics/statistics_screen.dart';
 
 /// 主页（底部导航：账单 + AI记账 + 我的）
 ///
@@ -21,6 +22,7 @@ class _HomeScreenState extends State<HomeScreen> {
   static const _pages = <Widget>[
     BillsScreen(),
     AiAccountingScreen(),
+    StatisticsScreen(),
     UserProfileScreen(),
   ];
 
@@ -68,22 +70,27 @@ class _HomeScreenState extends State<HomeScreen> {
             backgroundColor:
                 Theme.of(context).colorScheme.surfaceContainer,
             destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.receipt_long_outlined),
-                selectedIcon: Icon(Icons.receipt_long),
-                label: '账单',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.auto_awesome_outlined),
-                selectedIcon: Icon(Icons.auto_awesome),
-                label: 'AI记账',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.person_outline),
-                selectedIcon: Icon(Icons.person),
-                label: '我的',
-              ),
-            ],
+                  NavigationDestination(
+                    icon: Icon(Icons.receipt_long_outlined),
+                    selectedIcon: Icon(Icons.receipt_long),
+                    label: '账单',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.auto_awesome_outlined),
+                    selectedIcon: Icon(Icons.auto_awesome),
+                    label: 'AI记账',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.pie_chart_outline),
+                    selectedIcon: Icon(Icons.pie_chart),
+                    label: '统计',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.person_outline),
+                    selectedIcon: Icon(Icons.person),
+                    label: '我的',
+                  ),
+                ],
           ),
         ),
       ),

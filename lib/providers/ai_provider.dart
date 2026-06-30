@@ -284,15 +284,20 @@ class AiProvider extends ChangeNotifier {
       time: DateTime.now(),
     );
 
+    // 先加入用户消息并立即通知 UI，让用户输入立即显示
+    _chatHistory.add(userMessage);
+    notifyListeners();
+
+    // 调用 AI 时使用不包含当前用户消息的历史，避免 _service.chat 重复追加
     final response = await _service.chat(
       config: config,
-      history: _chatHistory,
+      history: List.unmodifiable(_chatHistory.sublist(0, _chatHistory.length - 1)),
       userMessage: userMessage,
       expenseCategories: expenseCategories,
       incomeCategories: incomeCategories,
     );
 
-    _chatHistory.add(userMessage);
+    // AI 响应后再追加助手消息
     _chatHistory.add(AiChatMessage(
       role: 'assistant',
       text: response.text,
@@ -307,5 +312,37 @@ class AiProvider extends ChangeNotifier {
   void clearChatHistory() {
     _chatHistory.clear();
     notifyListeners();
+  }
+
+  /// 对统计数据进行 AI 总结分析
+  ///
+  /// 使用当前激活的文本识别配置，传入统计摘要 prompt，返回分析文本。
+  Future<String> analyzeStatistics(String prompt) async {
+    final config = effectiveTextConfig;
+    if (config == null || !config.isValid) {
+      throw AiException('未选择文本识别配置');
+    }
+    final response = await _service.chat(
+      config: config,
+      history: const [],
+      userMessage: AiChatMessage(
+        role: 'user',
+        text: prompt,
+        time: DateTime.now(),
+      ),
+      expenseCategories: const [],
+      incomeCategories: const [],
+    );
+    return response.text ?? '分析完成，但未返回内容';
+  }
+
+  /// 标记某条 AI 消息的识别结果已保存
+  void markChatMessageSaved(int index) {
+    if (index < 0 || index >= _chatHistory.length) return;
+    final msg = _chatHistory[index];
+    if (msg.isAssistant && msg.results.isNotEmpty && !msg.saved) {
+      _chatHistory[index] = msg.copyWith(saved: true);
+      notifyListeners();
+    }
   }
 }

@@ -328,6 +328,7 @@ class AiChatMessage {
     this.base64Images = const [],
     this.results = const [],
     this.time,
+    this.saved = false,
   });
 
   /// 角色：system / user / assistant
@@ -345,11 +346,31 @@ class AiChatMessage {
   /// 消息时间
   final DateTime? time;
 
+  /// 识别结果是否已保存到账单
+  final bool saved;
+
   /// 是否为用户消息
   bool get isUser => role == 'user';
 
   /// 是否为 AI 消息
   bool get isAssistant => role == 'assistant';
+
+  AiChatMessage copyWith({
+    String? role,
+    String? text,
+    List<String>? base64Images,
+    List<AiRecognitionResult>? results,
+    DateTime? time,
+    bool? saved,
+  }) =>
+      AiChatMessage(
+        role: role ?? this.role,
+        text: text ?? this.text,
+        base64Images: base64Images ?? this.base64Images,
+        results: results ?? this.results,
+        time: time ?? this.time,
+        saved: saved ?? this.saved,
+      );
 }
 
 /// AI 对话响应

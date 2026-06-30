@@ -25,15 +25,19 @@ class AnticountWidgetProvider : AppWidgetProvider() {
 
             views.setTextViewText(
                 R.id.widget_month_label,
-                data.getString("widget_month_label", "本月收支")
+                data.getString("widget_month_label", "本月账单")
             )
             views.setTextViewText(
-                R.id.widget_income,
-                data.getString("widget_income", "0.00")
+                R.id.widget_total_amount,
+                data.getString("widget_total_amount", "0.00")
             )
             views.setTextViewText(
-                R.id.widget_expense,
-                data.getString("widget_expense", "0.00")
+                R.id.widget_bill_count,
+                data.getString("widget_bill_count", "0")
+            )
+            views.setTextViewText(
+                R.id.widget_average_amount,
+                data.getString("widget_average_amount", "0.00")
             )
 
             // 点击小部件打开应用

@@ -15,7 +15,10 @@ class SettingsProvider extends ChangeNotifier {
         _hiddenExpense = _service.hiddenExpenseCategories,
         _retainDataOnLogout = _service.retainDataOnLogout,
         _autoSaveAiBills = _service.autoSaveAiBills,
-        _billGroupMode = _service.billGroupMode;
+        _aiChatMode = _service.aiChatMode,
+        _billGroupMode = _service.billGroupMode,
+        _aiImportEnabled = _service.aiImportEnabled,
+        _autoProcessImportedBills = _service.autoProcessImportedBills;
 
   final SettingsService _service;
 
@@ -27,7 +30,10 @@ class SettingsProvider extends ChangeNotifier {
   List<String> _hiddenExpense;
   bool _retainDataOnLogout;
   bool _autoSaveAiBills;
+  bool _aiChatMode;
   String _billGroupMode;
+  bool _aiImportEnabled;
+  bool _autoProcessImportedBills;
 
   String get themeMode => _themeMode;
   String get currency => _currency;
@@ -38,8 +44,14 @@ class SettingsProvider extends ChangeNotifier {
   bool get retainDataOnLogout => _retainDataOnLogout;
   /// AI 识别后是否自动保存到账单
   bool get autoSaveAiBills => _autoSaveAiBills;
+  /// AI 记账默认是否为对话模式（true=对话模式，false=批量处理模式）
+  bool get aiChatMode => _aiChatMode;
   /// 账单分组模式：day / week / month / year
   String get billGroupMode => _billGroupMode;
+  /// 是否允许 AI 处理非标准格式的导入文件
+  bool get aiImportEnabled => _aiImportEnabled;
+  /// AI 导入识别后是否自动保存到账单
+  bool get autoProcessImportedBills => _autoProcessImportedBills;
 
   /// 记账界面可见的收入分类（排除隐藏项）
   List<String> get visibleIncomeCategories =>
@@ -101,10 +113,31 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 设置 AI 记账默认是否为对话模式
+  Future<void> setAiChatMode(bool value) async {
+    _aiChatMode = value;
+    await _service.setAiChatMode(value);
+    notifyListeners();
+  }
+
   /// 设置账单分组模式（day / week / month / year）
   Future<void> setBillGroupMode(String mode) async {
     _billGroupMode = mode;
     await _service.setBillGroupMode(mode);
+    notifyListeners();
+  }
+
+  /// 设置是否允许 AI 处理非标准格式的导入文件
+  Future<void> setAiImportEnabled(bool value) async {
+    _aiImportEnabled = value;
+    await _service.setAiImportEnabled(value);
+    notifyListeners();
+  }
+
+  /// 设置 AI 导入识别后是否自动保存到账单
+  Future<void> setAutoProcessImportedBills(bool value) async {
+    _autoProcessImportedBills = value;
+    await _service.setAutoProcessImportedBills(value);
     notifyListeners();
   }
 

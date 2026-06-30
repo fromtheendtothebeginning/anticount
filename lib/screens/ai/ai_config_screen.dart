@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/ai_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../../services/ai_service.dart';
 import '../../widgets/animated_dialog.dart';
 import 'ai_profile_edit_screen.dart';
@@ -25,6 +26,9 @@ class AiConfigScreen extends StatelessWidget {
           : ListView(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
               children: [
+                // 自动记账开关
+                _AutoSaveSwitch(),
+                const SizedBox(height: 8),
                 // 文字识别分组
                 _RecognitionSection(
                   title: '文字识别',
@@ -74,6 +78,29 @@ class AiConfigScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 自动记账开关
+///
+/// 允许用户在 AI 配置页面直接开启/关闭「识别后自动记入账单」。
+class _AutoSaveSwitch extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.watch<SettingsProvider>();
+    return Card(
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: SwitchListTile(
+        secondary: const Icon(Icons.auto_awesome_outlined),
+        title: const Text('识别后自动记入账单'),
+        subtitle: const Text('AI 识别完成自动保存为账单'),
+        value: settings.autoSaveAiBills,
+        onChanged: (v) => settings.setAutoSaveAiBills(v),
       ),
     );
   }

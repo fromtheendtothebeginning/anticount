@@ -15,7 +15,10 @@ class SettingsService {
   static const _kHiddenExpenseCategories = 'settings_hidden_expense_categories';
   static const _kRetainDataOnLogout = 'settings_retain_data_on_logout';
   static const _kAutoSaveAiBills = 'settings_auto_save_ai_bills';
+  static const _kAiChatMode = 'settings_ai_chat_mode'; // true=对话模式，false=批量处理模式
   static const _kBillGroupMode = 'settings_bill_group_mode'; // day/week/month/year
+  static const _kAiImportEnabled = 'settings_ai_import_enabled'; // true=允许AI处理非标准格式
+  static const _kAutoProcessImportedBills = 'settings_auto_process_imported_bills'; // true=AI解析后自动保存
 
   /// 主题模式：system / light / dark
   String get themeMode => _prefs.getString(_kThemeMode) ?? 'system';
@@ -66,9 +69,25 @@ class SettingsService {
   Future<void> setAutoSaveAiBills(bool value) =>
       _prefs.setBool(_kAutoSaveAiBills, value);
 
+  /// AI 记账默认是否为对话模式（默认 false，即批量处理模式）
+  bool get aiChatMode => _prefs.getBool(_kAiChatMode) ?? false;
+  Future<void> setAiChatMode(bool value) => _prefs.setBool(_kAiChatMode, value);
+
   /// 账单分组模式：day / week / month / year（默认按周）
   String get billGroupMode =>
       _prefs.getString(_kBillGroupMode) ?? 'week';
   Future<void> setBillGroupMode(String mode) =>
       _prefs.setString(_kBillGroupMode, mode);
+
+  /// 是否允许 AI 处理非标准格式的导入文件（默认开启）
+  bool get aiImportEnabled =>
+      _prefs.getBool(_kAiImportEnabled) ?? true;
+  Future<void> setAiImportEnabled(bool value) =>
+      _prefs.setBool(_kAiImportEnabled, value);
+
+  /// AI 导入识别后是否自动保存到账单（默认关闭）
+  bool get autoProcessImportedBills =>
+      _prefs.getBool(_kAutoProcessImportedBills) ?? false;
+  Future<void> setAutoProcessImportedBills(bool value) =>
+      _prefs.setBool(_kAutoProcessImportedBills, value);
 }

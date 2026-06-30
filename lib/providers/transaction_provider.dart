@@ -154,4 +154,17 @@ class TransactionProvider extends ChangeNotifier {
       end: end,
     );
   }
+
+  /// 按时间范围统计交易笔数（不影响当前 filter 状态）
+  Future<int> countByRange({
+    required int userId,
+    DateTime? start,
+    DateTime? end,
+  }) {
+    return _service.count(
+      userId: userId,
+      start: start,
+      end: end,
+    );
+  }
 }

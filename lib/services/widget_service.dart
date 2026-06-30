@@ -7,20 +7,24 @@ import 'package:home_widget/home_widget.dart';
 class WidgetService {
   static const _androidProviderName = 'AnticountWidgetProvider';
 
-  /// 保存月度收支数据并刷新桌面小部件
+  /// 保存月度账单数据并刷新桌面小部件
+  ///
+  /// [totalAmount] 为当月账单总金额（收入 + 支出），
+  /// [billCount] 为当月账单笔数，
+  /// [averageAmount] 为当月账单平均金额。
   static Future<void> updateMonthlySummary({
-    required double income,
-    required double expense,
     required String monthLabel,
+    required double totalAmount,
+    required int billCount,
+    required double averageAmount,
   }) async {
-    final balance = income - expense;
     await HomeWidget.saveWidgetData('widget_month_label', monthLabel);
     await HomeWidget.saveWidgetData(
-        'widget_income', income.toStringAsFixed(2));
+        'widget_total_amount', totalAmount.toStringAsFixed(2));
     await HomeWidget.saveWidgetData(
-        'widget_expense', expense.toStringAsFixed(2));
+        'widget_bill_count', billCount.toString());
     await HomeWidget.saveWidgetData(
-        'widget_balance', balance.toStringAsFixed(2));
+        'widget_average_amount', averageAmount.toStringAsFixed(2));
     await HomeWidget.updateWidget(
       name: _androidProviderName,
       androidName: _androidProviderName,

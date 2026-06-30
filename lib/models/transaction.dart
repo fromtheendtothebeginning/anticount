@@ -50,6 +50,12 @@ class Transaction {
       'created_at': createdAt?.millisecondsSinceEpoch,
     };
   }
+
+  /// 是否为支出
+  bool get isExpense => type == TransactionType.expense;
+
+  /// 是否为收入
+  bool get isIncome => type == TransactionType.income;
 }
 
 /// 交易类型

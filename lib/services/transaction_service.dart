@@ -121,4 +121,28 @@ class TransactionService {
     }
     return (income: income, expense: expense);
   }
+
+  /// 统计：指定时间范围内的交易笔数
+  Future<int> count({
+    required int userId,
+    DateTime? start,
+    DateTime? end,
+  }) async {
+    final where = StringBuffer('user_id = ?');
+    final args = <dynamic>[userId];
+    if (start != null) {
+      where.write(' AND date >= ?');
+      args.add(start.millisecondsSinceEpoch);
+    }
+    if (end != null) {
+      where.write(' AND date <= ?');
+      args.add(end.millisecondsSinceEpoch);
+    }
+
+    final rows = await _db.rawQuery(
+      'SELECT COUNT(*) AS cnt FROM transactions WHERE $where',
+      args,
+    );
+    return (rows.first['cnt'] as num?)?.toInt() ?? 0;
+  }
 }

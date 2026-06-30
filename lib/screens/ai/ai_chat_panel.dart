@@ -11,7 +11,9 @@ import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/transaction_provider.dart';
 import '../../services/ai_service.dart';
+import '../../widgets/animated_dialog.dart';
 import 'ai_error_dialog.dart';
+import 'auto_save_confirm_dialog.dart';
 
 /// AI 记账对话模式面板
 ///
@@ -30,6 +32,9 @@ class _AiChatPanelState extends State<AiChatPanel> {
   final List<String> _pendingBase64 = [];
   bool _sending = false;
   bool _saving = false;
+
+  /// 缓存每条 AI 消息识别结果的重复检测 Future（key=消息索引）
+  final Map<int, Future<List<List<Transaction>>>> _duplicatesCache = {};
 
   @override
   void dispose() {
@@ -95,13 +100,20 @@ class _AiChatPanelState extends State<AiChatPanel> {
     });
 
     try {
-      await ai.sendChatMessage(
+      final response = await ai.sendChatMessage(
         text: text,
         base64Images: pendingImages,
         expenseCategories: settings.expenseCategories,
         incomeCategories: settings.incomeCategories,
       );
       _scrollToBottom();
+
+      // 自动保存：设置开启且 AI 返回识别结果时触发
+      // 助手消息已追加到历史末尾，索引为 history.length - 1
+      if (settings.autoSaveAiBills && response.results.isNotEmpty && mounted) {
+        final messageIndex = ai.chatHistory.length - 1;
+        await _autoSaveResults(messageIndex, response.results);
+      }
     } catch (e) {
       if (!mounted) return;
       await showAiErrorDialog(
@@ -115,7 +127,10 @@ class _AiChatPanelState extends State<AiChatPanel> {
   }
 
   /// 保存某条 AI 消息中的识别结果
-  Future<void> _saveResults(List<AiRecognitionResult> results) async {
+  ///
+  /// [messageIndex] 用于保存成功后标记该消息为已保存状态。
+  Future<void> _saveResults(
+      int messageIndex, List<AiRecognitionResult> results) async {
     final user = context.read<AuthProvider>().user;
     if (user == null) return;
     if (results.isEmpty) return;
@@ -148,9 +163,11 @@ class _AiChatPanelState extends State<AiChatPanel> {
     setState(() => _saving = false);
 
     if (success == results.length) {
-      _showTip('已保存 $success 条账单');
+      // 保存成功后不再弹出 SnackBar，按钮会变为「已加入账单」作为反馈
+      context.read<AiProvider>().markChatMessageSaved(messageIndex);
     } else if (success > 0) {
-      _showTip('已保存 $success/${results.length} 条');
+      // 部分保存也标记为已保存，避免重复保存
+      context.read<AiProvider>().markChatMessageSaved(messageIndex);
     } else {
       await showAiErrorDialog(
         context: context,
@@ -160,9 +177,81 @@ class _AiChatPanelState extends State<AiChatPanel> {
     }
   }
 
-  void _showTip(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+  /// 自动保存识别结果
+  ///
+  /// [messageIndex] 用于标记该消息为已保存状态。
+  /// 先检测是否有重复账单，有重复时弹出确认对话框；
+  /// 用户确认（或无重复）后调用 [_saveResults] 保存。
+  Future<void> _autoSaveResults(
+      int messageIndex, List<AiRecognitionResult> results) async {
+    final duplicates = await _findDuplicates(results);
+    if (!mounted) return;
+
+    final hasDuplicates = duplicates.any((list) => list.isNotEmpty);
+    bool? confirmed = true;
+    if (hasDuplicates) {
+      confirmed = await showAnimatedDialog<bool>(
+        context: context,
+        barrierLabel: '确认保存',
+        builder: (dialogContext) => AutoSaveConfirmDialog(
+          results: results,
+          duplicates: duplicates,
+        ),
+      );
+    }
+
+    if (confirmed == true && mounted) {
+      await _saveResults(messageIndex, results);
+    }
+  }
+
+  /// 检测识别结果中是否有与已有账单重复的
+  ///
+  /// 判断条件：同一用户、同一天、相同金额、相同类型、相同分类
+  /// 返回每个识别结果对应的重复交易列表（索引与 results 对应）。
+  Future<List<List<Transaction>>> _findDuplicates(
+      List<AiRecognitionResult> results) async {
+    final user = context.read<AuthProvider>().user;
+    if (user == null) return List.generate(results.length, (_) => []);
+
+    final provider = context.read<TransactionProvider>();
+    final now = DateTime.now();
+    // 查询最近 7 天的交易用于比对
+    final recent = await provider.queryByRange(
+      userId: user.id,
+      start: now.subtract(const Duration(days: 7)),
+      end: now,
+    );
+
+    // 为每个识别结果查找重复
+    final duplicates = <List<Transaction>>[];
+    for (final result in results) {
+      final type = result.type == 'income'
+          ? TransactionType.income
+          : TransactionType.expense;
+      // 重复判断：同一天、相同金额、相同类型、相同分类
+      final matches = recent.where((tx) {
+        return tx.amount == result.amount &&
+            tx.type == type &&
+            tx.category == result.category &&
+            _isSameDay(tx.date, now);
+      }).toList();
+      duplicates.add(matches);
+    }
+    return duplicates;
+  }
+
+  /// 判断两个日期是否为同一天
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  /// 获取某条 AI 消息识别结果的重复检测信息（带缓存）
+  Future<List<List<Transaction>>> _getDuplicates(
+      int messageIndex, List<AiRecognitionResult> results) {
+    return _duplicatesCache.putIfAbsent(
+      messageIndex,
+      () => _findDuplicates(results),
     );
   }
 
@@ -183,7 +272,7 @@ class _AiChatPanelState extends State<AiChatPanel> {
                   itemCount: history.length,
                   itemBuilder: (context, index) {
                     final msg = history[index];
-                    return _buildMessageBubble(context, msg);
+                    return _buildMessageBubble(context, index, msg);
                   },
                 ),
         ),
@@ -219,7 +308,8 @@ class _AiChatPanelState extends State<AiChatPanel> {
     );
   }
 
-  Widget _buildMessageBubble(BuildContext context, AiChatMessage msg) {
+  Widget _buildMessageBubble(
+      BuildContext context, int index, AiChatMessage msg) {
     final isUser = msg.isUser;
     final theme = Theme.of(context);
     final bgColor = isUser
@@ -262,12 +352,53 @@ class _AiChatPanelState extends State<AiChatPanel> {
                 ],
                 if (!isUser && msg.results.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  ...msg.results.map((r) => _buildResultChip(r)),
+                  // 已保存的账单直接展示结果；未保存时异步检测重复并标识
+                  if (msg.saved)
+                    ...msg.results.map((r) => _buildResultChip(r)),
+                  if (!msg.saved)
+                    FutureBuilder<List<List<Transaction>>>(
+                      future: _getDuplicates(index, msg.results),
+                      builder: (context, snapshot) {
+                        final duplicates = snapshot.data ??
+                            List.generate(msg.results.length, (_) => []);
+                        return Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            for (var i = 0; i < msg.results.length; i++)
+                              _buildResultChip(
+                                msg.results[i],
+                                isDuplicate: i < duplicates.length &&
+                                    duplicates[i].isNotEmpty,
+                              ),
+                          ],
+                        );
+                      },
+                    ),
                   const SizedBox(height: 8),
-                  FilledButton.tonal(
-                    onPressed: _saving ? null : () => _saveResults(msg.results),
-                    child: Text(_saving ? '保存中...' : '保存到账单'),
-                  ),
+                  if (msg.saved)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.check_circle,
+                            size: 16, color: Colors.green[600]),
+                        const SizedBox(width: 4),
+                        Text(
+                          '已加入账单',
+                          style: TextStyle(
+                            color: Colors.green[600],
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    FilledButton.tonal(
+                      onPressed: _saving
+                          ? null
+                          : () => _saveResults(index, msg.results),
+                      child: Text(_saving ? '保存中...' : '保存到账单'),
+                    ),
                 ],
               ],
             ),
@@ -295,10 +426,20 @@ class _AiChatPanelState extends State<AiChatPanel> {
     );
   }
 
-  Widget _buildResultChip(AiRecognitionResult result) {
+  Widget _buildResultChip(AiRecognitionResult result,
+      {bool isDuplicate = false}) {
     final prefix = result.type == 'income' ? '收入' : '支出';
     return Chip(
-      label: Text('$prefix · ${result.category} · ${result.amount.toStringAsFixed(2)}'),
+      avatar: isDuplicate
+          ? const Icon(Icons.warning_amber_rounded,
+              color: Colors.orange, size: 18)
+          : null,
+      label: Text(
+          '$prefix · ${result.category} · ${result.amount.toStringAsFixed(2)}'),
+      backgroundColor: isDuplicate ? Colors.orange.withAlpha(30) : null,
+      side: isDuplicate
+          ? BorderSide(color: Colors.orange.withAlpha(120))
+          : null,
     );
   }
 

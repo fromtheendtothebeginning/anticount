@@ -10,6 +10,7 @@ import 'category_management_screen.dart';
 import 'change_password_screen.dart';
 import 'delete_account_screen.dart';
 import 'export_screen.dart';
+import 'import_screen.dart';
 
 /// 设置页面
 class SettingsScreen extends StatelessWidget {
@@ -103,11 +104,35 @@ class SettingsScreen extends StatelessWidget {
           _SettingsCard(
             children: [
               SwitchListTile(
+                secondary: const Icon(Icons.chat_bubble_outline),
+                title: const Text('默认使用对话模式'),
+                subtitle: const Text('开启后，AI 记账默认进入对话模式；关闭则默认进入批量处理模式'),
+                value: settings.aiChatMode,
+                onChanged: (v) => settings.setAiChatMode(v),
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              SwitchListTile(
                 secondary: const Icon(Icons.auto_awesome_outlined),
                 title: const Text('识别后自动记入账单'),
                 subtitle: const Text('开启后，AI 识别完成将自动保存为账单'),
                 value: settings.autoSaveAiBills,
                 onChanged: (v) => settings.setAutoSaveAiBills(v),
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              SwitchListTile(
+                secondary: const Icon(Icons.psychology_outlined),
+                title: const Text('AI 导入处理'),
+                subtitle: const Text('开启后，非标准格式文件将交给 AI 解析'),
+                value: settings.aiImportEnabled,
+                onChanged: (v) => settings.setAiImportEnabled(v),
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              SwitchListTile(
+                secondary: const Icon(Icons.bolt_outlined),
+                title: const Text('导入后自动处理'),
+                subtitle: const Text('开启后，AI 导入识别成功将自动保存为账单'),
+                value: settings.autoProcessImportedBills,
+                onChanged: (v) => settings.setAutoProcessImportedBills(v),
               ),
             ],
           ),
@@ -123,11 +148,21 @@ class SettingsScreen extends StatelessWidget {
                   builder: (_) => const ExportScreen(),
                 )),
               ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              ListTile(
+                leading: const Icon(Icons.file_download_outlined),
+                title: const Text('导入账单'),
+                subtitle: const Text('从 CSV / Excel 导入账单'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const ImportScreen(),
+                )),
+              ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.widgets_outlined),
                 title: const Text('桌面卡片'),
-                subtitle: const Text('添加本月收支到桌面'),
+                subtitle: const Text('添加本月账单数据到桌面'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _addDesktopWidget(context),
               ),

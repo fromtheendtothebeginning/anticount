@@ -15,6 +15,7 @@ import '../../widgets/animated_dialog.dart';
 import 'ai_chat_panel.dart';
 import 'ai_config_screen.dart';
 import 'ai_error_dialog.dart';
+import 'auto_save_confirm_dialog.dart';
 
 /// AI 记账界面
 ///
@@ -37,8 +38,15 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
   bool _saving = false;
   // 多条识别结果
   List<AiRecognitionResult> _results = const [];
-  // 是否为对话模式（与单次识别模式可互相切换）
+  // 是否为对话模式（与批量处理模式可互相切换）
   bool _isChatMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 根据设置初始化默认模式
+    _isChatMode = context.read<SettingsProvider>().aiChatMode;
+  }
 
   @override
   void dispose() {
@@ -192,7 +200,7 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
     final confirmed = await showAnimatedDialog<bool>(
       context: context,
       barrierLabel: '确认保存',
-      builder: (dialogContext) => _AutoSaveConfirmDialog(
+      builder: (dialogContext) => AutoSaveConfirmDialog(
         results: _results,
         duplicates: duplicates,
       ),
@@ -258,7 +266,7 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
     final confirmed = await showAnimatedDialog<bool>(
       context: context,
       barrierLabel: '重复账单确认',
-      builder: (dialogContext) => _AutoSaveConfirmDialog(
+      builder: (dialogContext) => AutoSaveConfirmDialog(
         results: _results,
         duplicates: duplicates,
         isManualSave: true,
@@ -312,12 +320,9 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
         _base64Images.clear();
         _results = const [];
       });
-      _showTip(autoMode
-          ? '已自动保存 $successCount 条账单'
-          : '已保存 $successCount 条账单');
+      // 保存成功后不再弹出 SnackBar，界面已清空结果作为反馈
     } else if (successCount > 0) {
       // 部分成功
-      _showTip('已保存 $successCount/${results.length} 条，部分失败');
       if (!autoMode && lastError != null) {
         await showAiErrorDialog(
           context: context,
@@ -354,8 +359,8 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
       appBar: AppBar(
         title: const Text('AI 记账'),
         actions: [
-          // 自动保存状态标识（仅单次识别模式显示）
-          if (!_isChatMode && settings.autoSaveAiBills)
+          // 自动保存状态标识
+          if (settings.autoSaveAiBills)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
               child: Center(
@@ -407,32 +412,62 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
           ? _buildNoProfileHint(context, ai)
           : Column(
               children: [
-                // 模式切换：单次识别 / 对话模式
+                // 模式切换：批量处理模式 / 对话模式
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                  child: SegmentedButton<bool>(
-                    segments: const [
-                      ButtonSegment<bool>(
-                        value: false,
-                        label: Text('单次识别'),
-                      ),
-                      ButtonSegment<bool>(
-                        value: true,
-                        label: Text('对话模式'),
-                      ),
-                    ],
-                    selected: {_isChatMode},
-                    onSelectionChanged: (value) {
-                      setState(() => _isChatMode = value.first);
-                    },
+                  child: SizedBox(
+                    // 占满可用宽度，确保切换时选择组件大小不变
+                    width: double.infinity,
+                    child: SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment<bool>(
+                          value: false,
+                          label: Text('批量处理模式'),
+                        ),
+                        ButtonSegment<bool>(
+                          value: true,
+                          label: Text('对话模式'),
+                        ),
+                      ],
+                      selected: {_isChatMode},
+                      onSelectionChanged: (value) {
+                        final mode = value.first;
+                        setState(() => _isChatMode = mode);
+                        // 持久化当前模式，下次进入 AI 记账时恢复
+                        context.read<SettingsProvider>().setAiChatMode(mode);
+                      },
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
-                // 根据模式显示不同面板
+                // 根据模式显示不同面板，带滑动切换动画
                 Expanded(
-                  child: _isChatMode
-                      ? const AiChatPanel()
-                      : _buildContent(context, ai),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    transitionBuilder: (child, animation) {
+                      // 根据进入的子组件判断滑动方向
+                      final isEnteringChat = child.key == const ValueKey('chat');
+                      final offset = Tween<Offset>(
+                        begin: isEnteringChat
+                            ? const Offset(1, 0)
+                            : const Offset(-1, 0),
+                        end: Offset.zero,
+                      ).animate(animation);
+                      return SlideTransition(
+                        position: offset,
+                        child: FadeTransition(
+                          opacity: animation,
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: _isChatMode
+                        ? const AiChatPanel(key: ValueKey('chat'))
+                        : KeyedSubtree(
+                            key: const ValueKey('batch'),
+                            child: _buildContent(context, ai),
+                          ),
+                  ),
                 ),
               ],
             ),
@@ -706,161 +741,6 @@ class _AiAccountingScreenState extends State<AiAccountingScreen> {
         children: [
           Text(label, style: const TextStyle(color: Colors.grey)),
           Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
-  }
-}
-
-/// 自动保存确认对话框
-///
-/// 展示 AI 识别结果，并提示是否有重复账单。
-/// 用户确认后才执行保存操作。
-class _AutoSaveConfirmDialog extends StatelessWidget {
-  const _AutoSaveConfirmDialog({
-    required this.results,
-    required this.duplicates,
-    this.isManualSave = false,
-  });
-
-  /// AI 识别结果列表
-  final List<AiRecognitionResult> results;
-
-  /// 每个识别结果对应的重复交易列表（索引与 results 对应）
-  final List<List<Transaction>> duplicates;
-
-  /// 是否为手动保存触发的重复确认
-  final bool isManualSave;
-
-  @override
-  Widget build(BuildContext context) {
-    // 统计重复数量
-    final hasDuplicates = duplicates.any((list) => list.isNotEmpty);
-    final dupCount =
-        duplicates.where((list) => list.isNotEmpty).length;
-
-    return AlertDialog(
-      title: Row(
-        children: [
-          Icon(
-            hasDuplicates ? Icons.warning_amber_rounded : Icons.check_circle,
-            color: hasDuplicates ? Colors.orange : Colors.green,
-            size: 24,
-          ),
-          const SizedBox(width: 8),
-          Text(isManualSave
-              ? (hasDuplicates ? '发现重复账单' : '确认保存')
-              : '确认保存账单'),
-        ],
-      ),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // 重复警告
-            if (hasDuplicates) ...[
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withAlpha(30),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange.withAlpha(80)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.info_outline,
-                        color: Colors.orange, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '检测到 $dupCount 条识别结果与已有账单重复（同一天、相同金额、分类），确认是否继续保存？',
-                        style: const TextStyle(fontSize: 13, color: Colors.orange),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
-            // 识别结果列表
-            Text(
-              '识别结果（${results.length} 条）',
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-            ),
-            const SizedBox(height: 8),
-            for (var i = 0; i < results.length; i++) ...[
-              _buildResultSummary(context, results[i], i),
-              if (i < results.length - 1) const SizedBox(height: 8),
-            ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(true),
-          child: const Text('确认保存'),
-        ),
-      ],
-    );
-  }
-
-  /// 单条识别结果摘要
-  Widget _buildResultSummary(
-      BuildContext context, AiRecognitionResult result, int index) {
-    final isDuplicate = index < duplicates.length && duplicates[index].isNotEmpty;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-        border: isDuplicate
-            ? Border.all(color: Colors.orange.withAlpha(120))
-            : null,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                '#${index + 1}',
-                style: const TextStyle(
-                    fontWeight: FontWeight.w600, fontSize: 13),
-              ),
-              if (isDuplicate) ...[
-                const SizedBox(width: 8),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withAlpha(40),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Text(
-                    '重复',
-                    style: TextStyle(fontSize: 11, color: Colors.orange),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '¥${result.amount.toStringAsFixed(2)} · '
-            '${result.type == 'income' ? '收入' : '支出'} · '
-            '${result.category}',
-            style: const TextStyle(fontSize: 13),
-          ),
-          if (result.note != null && result.note!.isNotEmpty)
-            Text(
-              '备注：${result.note}',
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-            ),
         ],
       ),
     );

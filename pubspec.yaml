@@ -2,7 +2,7 @@ name: anticount
 description: "A Flutter personal accounting app."
 publish_to: 'none'
 
-version: 1.2.0+2
+version: 1.4.2+10
 
 environment:
   sdk: ^3.9.2
@@ -26,6 +26,9 @@ dependencies:
   csv: ^6.0.0
   share_plus: ^10.0.0
   home_widget: ^0.7.0
+  fl_chart: ^0.70.2
+  file_picker: ^10.1.2
+  excel: ^4.0.6
 
 dev_dependencies:
   flutter_test:

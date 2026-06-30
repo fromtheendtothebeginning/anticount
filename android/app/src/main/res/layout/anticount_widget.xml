@@ -12,7 +12,7 @@
         android:id="@+id/widget_month_label"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="本月收支"
+        android:text="本月账单"
         android:textColor="#1565C0"
         android:textSize="14sp"
         android:textStyle="bold" />
@@ -21,7 +21,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="10dp"
         android:gravity="center">
 
         <LinearLayout
@@ -34,23 +34,23 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="收入"
+                android:text="账单金额"
                 android:textColor="#666666"
-                android:textSize="12sp" />
+                android:textSize="11sp" />
 
             <TextView
-                android:id="@+id/widget_income"
+                android:id="@+id/widget_total_amount"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0.00"
-                android:textColor="#2E7D32"
-                android:textSize="16sp"
+                android:textColor="#1565C0"
+                android:textSize="15sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
         <View
             android:layout_width="1dp"
-            android:layout_height="32dp"
+            android:layout_height="28dp"
             android:background="#E0E0E0" />
 
         <LinearLayout
@@ -63,17 +63,46 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="支出"
+                android:text="账单数量"
                 android:textColor="#666666"
-                android:textSize="12sp" />
+                android:textSize="11sp" />
 
             <TextView
-                android:id="@+id/widget_expense"
+                android:id="@+id/widget_bill_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textColor="#1565C0"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="1dp"
+            android:layout_height="28dp"
+            android:background="#E0E0E0" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="平均金额"
+                android:textColor="#666666"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/widget_average_amount"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0.00"
-                android:textColor="#C62828"
-                android:textSize="16sp"
+                android:textColor="#1565C0"
+                android:textSize="15sp"
                 android:textStyle="bold" />
         </LinearLayout>
     </LinearLayout>

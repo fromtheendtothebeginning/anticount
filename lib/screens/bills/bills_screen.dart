@@ -11,6 +11,7 @@ import '../../providers/settings_provider.dart';
 import '../../providers/transaction_provider.dart';
 import '../../services/widget_service.dart';
 import '../../widgets/animated_dialog.dart';
+import '../../widgets/slide_transition_switcher.dart';
 import '../accounting/accounting_screen.dart';
 import 'bills_detail_screen.dart';
 
@@ -35,8 +36,11 @@ class _BillsScreenState extends State<BillsScreen> {
   /// 当前选中的周（用该周周一表示）
   DateTime _selectedWeekStart = _mondayOf(DateTime.now());
 
-  /// 周切换动画方向
-  bool _weekAnimForward = true;
+  /// 周切换动画方向（true=向右滑动，false=向左滑动）
+  bool _weekSlideRight = true;
+
+  /// 月份切换动画方向（true=向右滑动，false=向左滑动）
+  bool _monthSlideRight = true;
 
   /// 月收支
   double _monthIncome = 0, _monthExpense = 0;
@@ -56,6 +60,15 @@ class _BillsScreenState extends State<BillsScreen> {
   static DateTime _mondayOf(DateTime date) {
     return DateTime(date.year, date.month, date.day - (date.weekday - 1));
   }
+
+  /// 计算时间切换时的滑动方向
+  ///
+  /// 按自然时间顺序：向前（更新、增长）时视觉向左滑动；向后（更旧、减小）时视觉向右滑动。
+  /// 返回 [SlideTransitionSwitcher.slideRight] 所需的布尔值：
+  /// - `true`：向右滑动（旧内容从左侧退出，新内容从右侧进入）
+  /// - `false`：向左滑动（旧内容从右侧退出，新内容从左侧进入）
+  static bool _slideRightFor(DateTime previous, DateTime current) =>
+      current.isBefore(previous);
 
   /// 当前选中月的起始（1 号 0 点）
   DateTime get _monthStart =>
@@ -79,14 +92,19 @@ class _BillsScreenState extends State<BillsScreen> {
   /// 加载月/周/日数据
   ///
   /// 月收支按月范围查询；每日列表按周范围查询，这样切换周时日期列表对应更换。
+  /// [targetMonth] 用于指定要加载的目标月份（月份切换时传入，不传则保持当前月份）。
   /// [targetWeekStart] 用于指定要加载的目标周（不传则使用当前 _selectedWeekStart），
   /// 切换周时先加载数据再更新状态，确保动画与数据同步。
-  /// [animForward] 用于指定本次周切换的动画方向（仅周切换时传入），
+  /// [animSlideRight] 用于指定本次周切换的视觉滑动方向（仅周切换时传入），
+  /// `true` 表示向右滑动，`false` 表示向左滑动。
   /// 与数据在同一个 setState 中更新，避免快速连点时方向被覆盖。
+  /// [monthAnimSlideRight] 用于指定本次月份切换的视觉滑动方向（仅月份切换时传入）。
   /// [showLoading] 是否显示全屏加载指示器（首次加载为 true，周切换为 false）。
   Future<void> _loadData({
+    DateTime? targetMonth,
     DateTime? targetWeekStart,
-    bool? animForward,
+    bool? animSlideRight,
+    bool? monthAnimSlideRight,
     bool showLoading = true,
   }) async {
     final user = context.read<AuthProvider>().user;
@@ -96,8 +114,8 @@ class _BillsScreenState extends State<BillsScreen> {
     final weekStart = targetWeekStart ?? _selectedWeekStart;
     final weekEnd = weekStart
         .add(const Duration(days: 6, hours: 23, minutes: 59, seconds: 59));
-    // 根据目标周同步更新顶部月份，跨月切换周时月份显示保持一致
-    final newMonth = DateTime(weekStart.year, weekStart.month, 1);
+    // 月份切换时显式传入目标月份，避免跨月周导致标题被改回（如 2 月 1 日所在周的周一是 1 月 29 日）
+    final newMonth = targetMonth ?? _selectedMonth;
     final monthStart = newMonth;
     final monthEnd = DateTime(newMonth.year, newMonth.month + 1, 0, 23, 59, 59, 999);
 
@@ -106,6 +124,13 @@ class _BillsScreenState extends State<BillsScreen> {
 
     // 查询本月收支（用于月收入/月支出栏），按目标周所在月份统计
     final monthSummary = await provider.summaryByRange(
+      userId: user.id,
+      start: monthStart,
+      end: monthEnd,
+    );
+
+    // 查询本月交易笔数（用于桌面卡片）
+    final monthCount = await provider.countByRange(
       userId: user.id,
       start: monthStart,
       end: monthEnd,
@@ -134,7 +159,8 @@ class _BillsScreenState extends State<BillsScreen> {
     setState(() {
       _selectedWeekStart = weekStart;
       _selectedMonth = newMonth;
-      if (animForward != null) _weekAnimForward = animForward;
+      if (animSlideRight != null) _weekSlideRight = animSlideRight;
+      if (monthAnimSlideRight != null) _monthSlideRight = monthAnimSlideRight;
       _monthIncome = monthSummary.income;
       _monthExpense = monthSummary.expense;
       _dailyGroups = sortedDaily;
@@ -142,29 +168,60 @@ class _BillsScreenState extends State<BillsScreen> {
     });
 
     // 同步更新桌面卡片数据
+    final totalAmount = _monthIncome + _monthExpense;
+    final averageAmount = monthCount > 0 ? totalAmount / monthCount : 0.0;
     unawaited(WidgetService.updateMonthlySummary(
-      income: _monthIncome,
-      expense: _monthExpense,
-      monthLabel: '${_selectedMonth.month}月收支',
+      monthLabel: '${_selectedMonth.month}月账单',
+      totalAmount: totalAmount,
+      billCount: monthCount,
+      averageAmount: averageAmount,
     ));
+  }
+
+  /// 根据目标月计算应显示的周
+  ///
+  /// 如果目标月是当前月，则显示包含今天的周；
+  /// 否则显示该月第 1 天所在的周。
+  DateTime _weekStartForMonth(DateTime month) {
+    final now = DateTime.now();
+    if (month.year == now.year && month.month == now.month) {
+      return _mondayOf(now);
+    }
+    return _mondayOf(DateTime(month.year, month.month, 1));
   }
 
   /// 上一月
   ///
-  /// 切换月份时同步更新周：新月份的周设为该月第 1 天所在的周。
+  /// 月份切换以目标月份为准，同时把周同步到该月对应的起始周。
+  /// 月份减小时内容向右滑动（slideRight=true），
+  /// 同步设置周列表方向，保证月份与周列表动画一致。
   void _prevMonth() {
     final newMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1, 1);
-    setState(() => _selectedMonth = newMonth);
-    // 周更新为新月份第 1 天所在的周一
-    _loadData(targetWeekStart: _mondayOf(DateTime(newMonth.year, newMonth.month, 1)));
+    final slideRight = _slideRightFor(_selectedMonth, newMonth);
+    _loadData(
+      targetMonth: newMonth,
+      targetWeekStart: _weekStartForMonth(newMonth),
+      monthAnimSlideRight: slideRight,
+      animSlideRight: slideRight,
+      showLoading: false,
+    );
   }
 
   /// 下一月
+  ///
+  /// 月份增长时内容向左滑动（slideRight=false），
+  /// 同步设置周列表方向，保证月份与周列表动画一致。
   void _nextMonth() {
     if (!_canNextMonth) return;
     final newMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 1);
-    setState(() => _selectedMonth = newMonth);
-    _loadData(targetWeekStart: _mondayOf(DateTime(newMonth.year, newMonth.month, 1)));
+    final slideRight = _slideRightFor(_selectedMonth, newMonth);
+    _loadData(
+      targetMonth: newMonth,
+      targetWeekStart: _weekStartForMonth(newMonth),
+      monthAnimSlideRight: slideRight,
+      animSlideRight: slideRight,
+      showLoading: false,
+    );
   }
 
   /// 点击月份文本 → 弹出年月选择器
@@ -179,29 +236,54 @@ class _BillsScreenState extends State<BillsScreen> {
       ),
     );
     if (picked != null && picked != _selectedMonth) {
-      setState(() => _selectedMonth = DateTime(picked.year, picked.month, 1));
-      // 周更新为选中月份第 1 天所在的周一
-      _loadData(targetWeekStart: _mondayOf(DateTime(picked.year, picked.month, 1)));
+      final newMonth = DateTime(picked.year, picked.month, 1);
+      // 月份增长时向左滑动（slideRight=false），减小时向右滑动（slideRight=true）
+      final slideRight = _slideRightFor(_selectedMonth, newMonth);
+      _loadData(
+        targetMonth: newMonth,
+        targetWeekStart: _weekStartForMonth(newMonth),
+        monthAnimSlideRight: slideRight,
+        animSlideRight: slideRight,
+        showLoading: false,
+      );
     }
   }
 
   /// 上一周
   ///
   /// 动画方向与数据在同一个 _loadData 调用中更新，避免快速连点时方向被覆盖。
+  /// 当周跨月时，同步更新顶部月份标题。
+  /// 周向前（更早）时内容向右滑动（slideRight=true），
+  /// 同步设置月份标题方向，保证周列表与月份动画一致。
   void _prevWeek() {
+    final newWeekStart = _selectedWeekStart.subtract(const Duration(days: 7));
+    final newMonth = DateTime(newWeekStart.year, newWeekStart.month, 1);
+    final weekSlideRight = _slideRightFor(_selectedWeekStart, newWeekStart);
+    final monthSlideRight = _slideRightFor(_selectedMonth, newMonth);
     _loadData(
-      targetWeekStart: _selectedWeekStart.subtract(const Duration(days: 7)),
-      animForward: false,
+      targetMonth: newMonth,
+      targetWeekStart: newWeekStart,
+      animSlideRight: weekSlideRight,
+      monthAnimSlideRight: monthSlideRight,
       showLoading: false,
     );
   }
 
   /// 下一周
+  ///
+  /// 周向后（更新）时内容向左滑动（slideRight=false），与月份增长方向保持一致，
+  /// 同步设置月份标题方向，保证周列表与月份动画一致。
   void _nextWeek() {
     if (!_canNextWeek) return;
+    final newWeekStart = _selectedWeekStart.add(const Duration(days: 7));
+    final newMonth = DateTime(newWeekStart.year, newWeekStart.month, 1);
+    final weekSlideRight = _slideRightFor(_selectedWeekStart, newWeekStart);
+    final monthSlideRight = _slideRightFor(_selectedMonth, newMonth);
     _loadData(
-      targetWeekStart: _selectedWeekStart.add(const Duration(days: 7)),
-      animForward: true,
+      targetMonth: newMonth,
+      targetWeekStart: newWeekStart,
+      animSlideRight: weekSlideRight,
+      monthAnimSlideRight: monthSlideRight,
       showLoading: false,
     );
   }
@@ -270,7 +352,8 @@ class _BillsScreenState extends State<BillsScreen> {
               onRefresh: _loadData,
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.only(bottom: 140, top: 4),
+                // 列表底部预留足够空位，避免内容贴到记账按钮
+                padding: const EdgeInsets.only(bottom: 200, top: 4),
                 children: [
                   // 1. 月份/年份切换器
                   _buildMonthSwitcher(context),
@@ -290,48 +373,17 @@ class _BillsScreenState extends State<BillsScreen> {
 
   /// 月份/年份切换器
   ///
-  /// 左右按钮 + 可点击的月份文本，无切换动画，不可切换时按钮变灰。
+  /// 左右按钮 + 可点击的月份文本，标题变化时带有滑动动画，不可切换时按钮变灰。
   Widget _buildMonthSwitcher(BuildContext context) {
     final title = '${_selectedMonth.year}年${_selectedMonth.month}月';
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // 上一月按钮
-          _NavButton(
-            icon: Icons.chevron_left,
-            onPressed: _prevMonth,
-            enabled: true,
-          ),
-          // 月份文本（点击弹出年月选择器）
-          GestureDetector(
-            onTap: _pickMonth,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                color: Theme.of(context).colorScheme.primaryContainer,
-              ),
-              // 直接显示文本，不使用动画
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Theme.of(context).colorScheme.onPrimaryContainer,
-                ),
-              ),
-            ),
-          ),
-          // 下一月按钮（不可切换时变灰）
-          _NavButton(
-            icon: Icons.chevron_right,
-            onPressed: _nextMonth,
-            enabled: _canNextMonth,
-          ),
-        ],
-      ),
+    return _PeriodSwitcher(
+      title: title,
+      titleKey: ValueKey<String>(title),
+      onPrev: _prevMonth,
+      onNext: _nextMonth,
+      onTitleTap: _pickMonth,
+      slideRight: _monthSlideRight,
+      canGoNext: _canNextMonth,
     );
   }
 
@@ -416,47 +468,30 @@ class _BillsScreenState extends State<BillsScreen> {
 
   /// 周切换器
   ///
-  /// 日期本身不需要切换动画，直接更新文本即可。
+  /// 左右按钮 + 周日期文本，标题变化时带有与月份切换一致的滑动动画。
   Widget _buildWeekSwitcher(BuildContext context) {
     final weekEnd = _selectedWeekStart.add(const Duration(days: 6));
     final title =
         '${DateFormat('MM-dd').format(_selectedWeekStart)} ~ ${DateFormat('MM-dd').format(weekEnd)}';
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _NavButton(
-            icon: Icons.chevron_left,
-            onPressed: _prevWeek,
-            enabled: true,
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            ),
-            // 日期本身不用切换动画，直接显示
-            child: Text(
-              title,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-            ),
-          ),
-          _NavButton(
-            icon: Icons.chevron_right,
-            onPressed: _nextWeek,
-            enabled: _canNextWeek,
-          ),
-        ],
-      ),
+    return _PeriodSwitcher(
+      title: title,
+      titleKey: ValueKey<String>(title),
+      onPrev: _prevWeek,
+      onNext: _nextWeek,
+      slideRight: _weekSlideRight,
+      canGoNext: _canNextWeek,
+      outerPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      containerPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      borderRadius: 16,
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+      titleStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
     );
   }
 
   /// 每日收支列表（按日期分组，可展开查看）
   ///
   /// 切换周时列表整体有滑动 + 淡入淡出的切换动画，
-  /// 日期本身（周切换器）不用切换动画。
+  /// 周切换器标题也使用同样的滑动动画。
   Widget _buildDailyList(BuildContext context, String currency) {
     if (_dailyGroups.isEmpty) {
       return const Padding(
@@ -472,28 +507,10 @@ class _BillsScreenState extends State<BillsScreen> {
         ),
       );
     }
-    // AnimatedSwitcher：切换周时列表整体滑动 + 淡入淡出
-    // 使用完整的 1.0 滑动偏移，让切换动画明显可见
-    return AnimatedSwitcher(
+    // SlideTransitionSwitcher：切换周时列表整体滑动 + 淡入淡出
+    return SlideTransitionSwitcher(
+      slideRight: _weekSlideRight,
       duration: const Duration(milliseconds: 300),
-      switchInCurve: Curves.easeOut,
-      switchOutCurve: Curves.easeIn,
-      transitionBuilder: (child, animation) {
-        // 区分当前动画是进入的新 child 还是退出的旧 child
-        final isEntering = child.key == ValueKey(_selectedWeekStart.toIso8601String());
-        // 同一方向滑动：下一周整体向左平移，上一周整体向右平移
-        final begin = isEntering
-            ? (_weekAnimForward ? const Offset(1.0, 0) : const Offset(-1.0, 0))
-            : (_weekAnimForward ? const Offset(-1.0, 0) : const Offset(1.0, 0));
-        final end = isEntering
-            ? Offset.zero
-            : (_weekAnimForward ? const Offset(-1.0, 0) : const Offset(1.0, 0));
-        final offset = Tween<Offset>(begin: begin, end: end).animate(animation);
-        return SlideTransition(
-          position: offset,
-          child: FadeTransition(opacity: animation, child: child),
-        );
-      },
       // key 随选中周变化，触发动画
       child: Column(
         key: ValueKey(_selectedWeekStart.toIso8601String()),
@@ -525,6 +542,112 @@ class _BillsScreenState extends State<BillsScreen> {
         await _loadData();
       }
     }
+  }
+}
+
+/// 可复用的周期切换器（月份/周等）
+///
+/// 左右导航按钮 + 可点击标题，标题变化时通过 [SlideTransitionSwitcher] 播放滑动动画。
+/// [slideRight] 控制标题切换的视觉方向，语义与 [SlideTransitionSwitcher.slideRight] 一致。
+class _PeriodSwitcher extends StatelessWidget {
+  const _PeriodSwitcher({
+    required this.title,
+    required this.titleKey,
+    required this.onPrev,
+    required this.onNext,
+    this.onTitleTap,
+    required this.slideRight,
+    this.canGoNext = true,
+    this.backgroundColor,
+    this.titleStyle,
+    this.containerPadding,
+    this.outerPadding,
+    this.borderRadius,
+  });
+
+  /// 当前标题文本
+  final String title;
+
+  /// 用于触发动画的 key，通常基于时间生成
+  final Key titleKey;
+
+  /// 点击左按钮
+  final VoidCallback onPrev;
+
+  /// 点击右按钮
+  final VoidCallback onNext;
+
+  /// 点击标题（可选）
+  final VoidCallback? onTitleTap;
+
+  /// 标题切换方向：true=向右滑动，false=向左滑动
+  final bool slideRight;
+
+  /// 右按钮是否可用
+  final bool canGoNext;
+
+  /// 标题容器背景色
+  final Color? backgroundColor;
+
+  /// 标题文本样式
+  final TextStyle? titleStyle;
+
+  /// 标题容器内边距
+  final EdgeInsetsGeometry? containerPadding;
+
+  /// 组件整体外边距
+  final EdgeInsetsGeometry? outerPadding;
+
+  /// 标题容器圆角
+  final double? borderRadius;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: outerPadding ??
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _NavButton(
+            icon: Icons.chevron_left,
+            onPressed: onPrev,
+            enabled: true,
+          ),
+          GestureDetector(
+            onTap: onTitleTap,
+            child: Container(
+              padding: containerPadding ??
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                borderRadius:
+                    BorderRadius.circular(borderRadius ?? 20),
+                color: backgroundColor ?? colorScheme.primaryContainer,
+              ),
+              child: SlideTransitionSwitcher(
+                slideRight: slideRight,
+                child: Text(
+                  key: titleKey,
+                  title,
+                  style: titleStyle ??
+                      TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: colorScheme.onPrimaryContainer,
+                      ),
+                ),
+              ),
+            ),
+          ),
+          _NavButton(
+            icon: Icons.chevron_right,
+            onPressed: onNext,
+            enabled: canGoNext,
+          ),
+        ],
+      ),
+    );
   }
 }
 

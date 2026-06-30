@@ -15,6 +15,7 @@ import 'services/ai_service.dart';
 import 'services/auth_service.dart';
 import 'services/database_service.dart';
 import 'services/export_service.dart';
+import 'services/import_service.dart';
 import 'services/settings_service.dart';
 import 'services/transaction_service.dart';
 
@@ -31,12 +32,14 @@ Future<void> main() async {
   final settingsService = SettingsService(prefs);
   final exportService = ExportService(transactionService);
   final aiService = AiService();
+  final importService = ImportService(aiService, transactionService);
 
   runApp(AnticountApp(
     authService: authService,
     transactionService: transactionService,
     settingsService: settingsService,
     exportService: exportService,
+    importService: importService,
     aiService: aiService,
   ));
 }
@@ -48,6 +51,7 @@ class AnticountApp extends StatelessWidget {
     required this.transactionService,
     required this.settingsService,
     required this.exportService,
+    required this.importService,
     required this.aiService,
   });
 
@@ -55,6 +59,7 @@ class AnticountApp extends StatelessWidget {
   final TransactionService transactionService;
   final SettingsService settingsService;
   final ExportService exportService;
+  final ImportService importService;
   final AiService aiService;
 
   @override
@@ -72,6 +77,9 @@ class AnticountApp extends StatelessWidget {
           ),
           Provider(
             create: (_) => exportService,
+          ),
+          Provider(
+            create: (_) => importService,
           ),
           ChangeNotifierProvider(
             create: (_) => AiProvider(aiService)..bootstrap(),

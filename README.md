@@ -6,9 +6,11 @@
 
 ### 记账管理
 - 手动记账：支持收入/支出分类管理
-- 账单查看：按日/周/月/年分组展示，月收支汇总
+- 账单查看：按日/周/月分组展示，月收支汇总
 - 分类管理：自定义收支分类
 - 重复检测：自动识别重复账单并提示确认
+- 账单导入：支持 CSV / Excel 文件导入，系统格式直接解析，非标准格式可由 AI 识别
+- 账单导出：将账单导出为 CSV 文件分享
 
 ### AI 智能记账
 - 多照片识别：支持一次拍摄多张票据同时识别
@@ -24,11 +26,19 @@
 - 退出登录（可选保留数据）
 - 账户注销
 
+### 统计总结
+- 收支汇总：按月/按年查看收入、支出、结余
+- 分类饼图：支出/收入分类占比可视化
+- 收支柱状图：按日/按周查看趋势，左右滑动切换时间窗口
+- AI 分析：基于当前周期数据生成收支总结与理财建议
+
 ### 设置
 - 主题色：蓝色主题
 - 货币单位切换
 - 账户安全（修改密码/注销账户）
 - AI 自动保存开关
+- 导入设置：AI 导入处理、导入后自动处理
+- Android 桌面卡片：显示月度账单概览
 - 中文本地化
 
 ## 技术栈
@@ -43,6 +53,12 @@
 | http | AI API 网络请求 |
 | image_picker | 图片选择（相机/相册） |
 | url_launcher | 打开外部链接（厂商开放平台） |
+| file_picker | 文件选择（导入账单） |
+| excel | Excel 文件读取 |
+| csv | CSV 导入/导出 |
+| share_plus | 文件分享 |
+| fl_chart | 图表（饼图/柱状图） |
+| home_widget | Android 桌面卡片 |
 | crypto | 密码加密 |
 
 ## 项目结构
@@ -69,17 +85,22 @@ lib/
 │   ├── bills/                   # 账单查看
 │   ├── home/                    # 主页
 │   ├── profile/                 # 个人中心
-│   └── settings/                # 设置
+│   ├── settings/                # 设置（导入/导出/分类管理）
+│   └── statistics/              # 统计总结
 ├── services/
 │   ├── ai_service.dart          # AI 服务（7 厂商 + 双 API 格式）
 │   ├── auth_service.dart        # 认证服务
 │   ├── database_service.dart    # 数据库服务
+│   ├── export_service.dart      # 账单导出服务
+│   ├── import_service.dart      # 账单导入服务
 │   ├── settings_service.dart    # 设置服务
-│   └── transaction_service.dart # 交易服务
+│   ├── transaction_service.dart # 交易服务
+│   └── widget_service.dart      # 桌面卡片数据服务
 └── widgets/
     ├── animated_dialog.dart     # 动画对话框
     ├── app_button.dart          # 通用按钮
-    └── app_text_field.dart      # 通用输入框
+    ├── app_text_field.dart      # 通用输入框
+    └── slide_transition_switcher.dart # 滑动切换动画
 ```
 
 ## 开发环境
@@ -134,6 +155,10 @@ flutter analyze
 
 ## 版本历史
 
+- v1.4.2 - 修复月份/周切换动画方向并抽象为 _PeriodSwitcher 组件
+- v1.4.1 - 统计页柱状图左右滑动切换 + 月份切换动画抽象
+- v1.4.0 - 账单导入（CSV/Excel + AI 解析）
+- v1.3.0 - 统计总结（饼图、柱状图、AI 分析）+ 账单导出 + Android 桌面卡片
 - v1.1.14 - AI记账界面精简 + 厂商开放平台跳转 + 配置菜单优化
 - v1.1.13 - 年月切换动画移除 + 月份切换同步更新周 + AI识别底部留白
 - v1.1.12 - 图标改为圆角矩形
@@ -150,15 +175,6 @@ flutter analyze
 - v1.1.0 - 中文化 + 5 个新 AI 厂商 + 多照片 + 账单分组
 - v1.0.1 - temperature 400 错误修复 + AI 配置分组
 - v1.0.0 - 初始版本
-
-## 开发规范
-
-- 版本号格式：x.y.z
-  - x：大版本号（需确认）
-  - y：次版本号（新增功能时增加）
-  - z：修订版本号（修复 bug 或完善功能时增加）
-- 代码需写中文注释
-- 工作日志记录在 `log/` 目录
 
 ## License
 
